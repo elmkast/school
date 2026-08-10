@@ -2,6 +2,9 @@
   "name": "medlibrary-mvp",
   "version": "0.1.0",
   "private": true,
+  "pnpm": {
+    "onlyBuiltDependencies": ["esbuild", "sharp", "workerd"]
+  },
   "engines": {
     "node": ">=22.13.0"
   },
