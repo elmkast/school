@@ -1,0 +1,5 @@
+{
+  "extends": "./tsconfig.json",
+  "files": ["app/page.tsx", "src/main.tsx", "netlify/functions/analyze.mts", "vite.netlify.config.ts"],
+  "exclude": ["node_modules", "dist", "dist-netlify", "worker", "db", "build", "examples"]
+}
