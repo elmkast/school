@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { deleteLecture, deletePreRead, getLectureFile, getPreReadFile, loadCloudLibrary, loadConcepts, loadLectures, loadPreReads, migrateLocalLibraryToCloud, saveConcept, saveLecture, saveLectures, savePreRead, setCloudUser, type ConceptRecord, type InkPoint, type InkStroke, type Lecture, type MigrationProgress, type PreRead, type PreReadStatus, type Slide } from "../lib/lecture-store";
+import { deleteLecture, deletePreRead, getLectureFile, getPreReadFile, loadCloudLibrary, loadConcepts, loadLectures, loadPreReads, migrateLocalLibraryToCloud, normalizeLecture, saveConcept, saveLecture, saveLectures, savePreRead, setCloudUser, type ConceptRecord, type InkPoint, type InkStroke, type Lecture, type MigrationProgress, type PreRead, type PreReadStatus, type Slide } from "../lib/lecture-store";
 import { downloadSloExcel } from "../lib/slo-excel";
 import { downloadSloPdf } from "../lib/slo-pdf";
 import { cloudConfigured, supabase, type CloudSession } from "../lib/supabase-client";
@@ -105,14 +105,19 @@ function currentAcademicYear() {
 const ALL_LECTURERS = "__all_lecturers__";
 const NEW_LECTURER = "__new_lecturer__";
 
-function lecturerFolderLabel(lecturer: string) {
-  if (/not detected|unknown|unassigned/i.test(lecturer)) return "Unassigned";
-  const name = lecturer.split(",")[0].trim();
-  return name.split(/\s+/).at(-1) || lecturer;
+function compareText(left: unknown, right: unknown) {
+  return String(left ?? "").localeCompare(String(right ?? ""));
 }
 
-function lectureDateTimestamp(value: string) {
-  const timestamp = Date.parse(value);
+function lecturerFolderLabel(lecturer: unknown) {
+  const safeLecturer = typeof lecturer === "string" && lecturer.trim() ? lecturer : "Lecturer not detected";
+  if (/not detected|unknown|unassigned/i.test(safeLecturer)) return "Unassigned";
+  const name = safeLecturer.split(",")[0].trim();
+  return name.split(/\s+/).at(-1) || safeLecturer;
+}
+
+function lectureDateTimestamp(value: unknown) {
+  const timestamp = Date.parse(typeof value === "string" ? value : "");
   return Number.isFinite(timestamp) ? timestamp : Number.NEGATIVE_INFINITY;
 }
 
@@ -130,6 +135,56 @@ function displayDateFromInput(value: string) {
   const [year, month, day] = value.split("-").map(Number);
   if (!year || !month || !day) return value;
   return new Date(year, month - 1, day).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
+}
+
+function mergeAiLectureBrief(base: Lecture, response: unknown, sourceSlides: Slide[], academicYear: string) {
+  const brief = response && typeof response === "object" && !Array.isArray(response) ? response as Record<string, unknown> : {};
+  const accepted: Record<string, unknown> = {};
+  const rejectedFields: string[] = [];
+  const stringFields = ["title", "lecturer", "date", "course", "summary"] as const;
+  const listFields = ["outline", "slos"] as const;
+
+  stringFields.forEach((field) => {
+    if (!(field in brief)) return;
+    if (typeof brief[field] === "string" && brief[field].trim()) accepted[field] = brief[field];
+    else rejectedFields.push(field);
+  });
+  listFields.forEach((field) => {
+    if (!(field in brief)) return;
+    const values = Array.isArray(brief[field]) ? brief[field].filter((item): item is string => typeof item === "string" && Boolean(item.trim())) : [];
+    if (values.length) accepted[field] = values;
+    else rejectedFields.push(field);
+  });
+
+  const aiSlides = Array.isArray(brief.slides) ? brief.slides : [];
+  if ("slides" in brief && !Array.isArray(brief.slides)) rejectedFields.push("slides");
+  const aiSlidesByPage = new Map<number, Record<string, unknown>>();
+  aiSlides.forEach((value) => {
+    if (!value || typeof value !== "object" || Array.isArray(value)) return;
+    const record = value as Record<string, unknown>;
+    if (typeof record.page === "number" && Number.isInteger(record.page) && record.page > 0) aiSlidesByPage.set(record.page, record);
+  });
+  const slides = sourceSlides.map((source) => {
+    const candidate = aiSlidesByPage.get(source.page);
+    if (!candidate) return source;
+    return {
+      page: source.page,
+      heading: typeof candidate.heading === "string" && candidate.heading.trim() ? candidate.heading : source.heading,
+      text: typeof candidate.text === "string" && candidate.text.trim() ? candidate.text : source.text,
+    };
+  });
+  const normalized = normalizeLecture({
+    ...base,
+    ...accepted,
+    slides,
+    notes: {},
+    markups: {},
+    markedSlides: [],
+    flaggedSLOs: [],
+    academicYear,
+    favorite: false,
+  });
+  return { lecture: normalized ?? base, rejectedFields };
 }
 
 type UploadStatus = "queued" | "extracting" | "analyzing" | "saving" | "done" | "error";
@@ -515,7 +570,7 @@ function CurriculumTree({ lectures, academicYears, coursesByYear, expandedYear, 
         {expandedYear === year && <div className="tree-children">{(coursesByYear[year] ?? []).map((course) => {
           const courseLectures = yearLectures.filter((lecture) => lecture.course === course);
           const courseKey = `${year}::${course}`;
-          const lecturers = Array.from(new Set(courseLectures.map((lecture) => lecture.lecturer))).sort((a, b) => lecturerFolderLabel(a).localeCompare(lecturerFolderLabel(b)));
+          const lecturers = Array.from(new Set(courseLectures.map((lecture) => lecture.lecturer))).sort((a, b) => compareText(lecturerFolderLabel(a), lecturerFolderLabel(b)));
           const courseSelected = folderSelectionIsCurrent && selectedYear === year && selectedCourse === course;
           return <div className="course-branch" key={course}>
             <button className={`course-toggle ${expandedCourse === courseKey ? "expanded" : ""} ${courseSelected && selectedLecturer === ALL_LECTURERS ? "active" : ""}`} aria-expanded={expandedCourse === courseKey} onClick={() => onSelectCourse(year, course, courseKey)}><span className="tree-chevron">›</span><AppIcon name="folder"/><span>{course}</span>{showCounts && <b>{countItems(courseLectures)}</b>}</button>
@@ -704,7 +759,7 @@ export default function Home() {
     folders[year] = Array.from(new Set(lectures.filter((lecture) => lecture.academicYear === year).map((lecture) => lecture.course))).sort();
     return folders;
   }, {}), [academicYears, lectures]);
-  const lecturerOptions = useMemo(() => Array.from(new Set(lectures.map((lecture) => lecture.lecturer).filter((lecturer) => !/not detected|unknown|unassigned/i.test(lecturer)))).sort((a, b) => a.localeCompare(b)), [lectures]);
+  const lecturerOptions = useMemo(() => Array.from(new Set(lectures.map((lecture) => lecture.lecturer).filter((lecturer) => !/not detected|unknown|unassigned/i.test(String(lecturer ?? ""))))).sort(compareText), [lectures]);
   const visibleLectures = useMemo(() => {
     const filtered = view === "favorites"
       ? lectures.filter((lecture) => lecture.favorite)
@@ -714,8 +769,8 @@ export default function Home() {
           && (activeCourse === "All courses" || lecture.course === activeCourse)
           && (activeLecturer === ALL_LECTURERS || lecture.lecturer === activeLecturer));
     return [...filtered].sort((a, b) => lectureSort === "name-asc"
-      ? a.title.localeCompare(b.title)
-      : lectureDateTimestamp(b.date) - lectureDateTimestamp(a.date) || a.title.localeCompare(b.title));
+      ? compareText(a.title, b.title)
+      : lectureDateTimestamp(b.date) - lectureDateTimestamp(a.date) || compareText(a.title, b.title));
   }, [lectures, view, allLecturesSelected, activeYear, activeCourse, activeLecturer, lectureSort]);
   const displayActive = visibleLectures.find((lecture) => lecture.id === activeId) ?? visibleLectures[0];
   const visibleSloLectures = useMemo(() => {
@@ -728,14 +783,14 @@ export default function Home() {
           && (activeSloLecturer === ALL_LECTURERS || lecture.lecturer === activeSloLecturer));
     return filtered
       .filter((lecture) => lecture.slos.length > 0)
-      .sort((a, b) => lectureDateTimestamp(b.date) - lectureDateTimestamp(a.date) || a.title.localeCompare(b.title));
+      .sort((a, b) => lectureDateTimestamp(b.date) - lectureDateTimestamp(a.date) || compareText(a.title, b.title));
   }, [lectures, flaggedSLOsSelected, allSLOsSelected, activeSloYear, activeSloCourse, activeSloLecturer]);
   const homeFlaggedLectures = useMemo(() => lectures
     .filter((lecture) => lecture.flaggedSLOs.some((index) => Boolean(lecture.slos[index])))
-    .sort((a, b) => lectureDateTimestamp(b.date) - lectureDateTimestamp(a.date) || a.title.localeCompare(b.title)), [lectures]);
+    .sort((a, b) => lectureDateTimestamp(b.date) - lectureDateTimestamp(a.date) || compareText(a.title, b.title)), [lectures]);
   const visiblePreReads = useMemo(() => preReads
     .filter((preRead) => preReadFilter === "all" || preRead.status === preReadFilter)
-    .sort((a, b) => b.createdAt.localeCompare(a.createdAt) || a.title.localeCompare(b.title)), [preReads, preReadFilter]);
+    .sort((a, b) => compareText(b.createdAt, a.createdAt) || compareText(a.title, b.title)), [preReads, preReadFilter]);
   const previewPreRead = preReads.find((preRead) => preRead.id === previewPreReadId);
   const visibleConcepts = useMemo(() => concepts.filter((concept) => concept.archived === (conceptFilter === "archived")), [concepts, conceptFilter]);
   const viewerFlaggedSLOs = viewerLecture?.flaggedSLOs.map((index) => viewerLecture.slos[index]).filter(Boolean) ?? [];
@@ -842,7 +897,7 @@ export default function Home() {
     return matches.sort((a, b) => searchSort === "date-desc"
       ? searchResultTimestamp(b) - searchResultTimestamp(a) || b.score - a.score
       : searchSort === "name-asc"
-        ? searchResultCollectionTitle(a).localeCompare(searchResultCollectionTitle(b)) || a.title.localeCompare(b.title)
+        ? compareText(searchResultCollectionTitle(a), searchResultCollectionTitle(b)) || compareText(a.title, b.title)
         : b.score - a.score || searchResultTimestamp(b) - searchResultTimestamp(a));
   }, [lectures, preReads, query, searchMode, searchYear, searchCourse, searchLecturer, searchSort]);
   const groupedResults = useMemo(() => ({
@@ -962,17 +1017,17 @@ export default function Home() {
     const selected = lectures
       .filter((lecture) => selectedExportLectureIds.has(lecture.id) && lecture.slos.length > 0)
       .sort((a, b) => {
-        const lecturerOrder = lecturerFolderLabel(a.lecturer).localeCompare(lecturerFolderLabel(b.lecturer));
+        const lecturerOrder = compareText(lecturerFolderLabel(a.lecturer), lecturerFolderLabel(b.lecturer));
         const dateOrder = lectureDateTimestamp(b.date) - lectureDateTimestamp(a.date);
         if (sloExportFormat === "excel") {
           return (sloExportSort === "lecturer" ? lecturerOrder || dateOrder : dateOrder)
-            || a.title.localeCompare(b.title);
+            || compareText(a.title, b.title);
         }
-        return a.academicYear.localeCompare(b.academicYear)
-          || a.course.localeCompare(b.course)
+        return compareText(a.academicYear, b.academicYear)
+          || compareText(a.course, b.course)
           || (sloExportSort === "lecturer" ? lecturerOrder : 0)
           || dateOrder
-          || a.title.localeCompare(b.title);
+          || compareText(a.title, b.title);
       });
     if (!selected.length) { setNotice("Select at least one lecture with SLOs."); return; }
     if (sloExportFormat === "excel") downloadSloExcel(selected);
@@ -1035,20 +1090,20 @@ export default function Home() {
         });
         const response = await fetch(aiEndpoint("analyze"), { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ lecture: { ...lecture, slides: analysisSlides } }) });
         if (response.ok) {
-          const brief = await response.json() as Partial<Lecture>;
-          const briefSlides = Array.isArray(brief.slides) ? brief.slides : [];
-          Object.assign(lecture, brief, { slides: slides.map((base) => briefSlides.find((item) => item.page === base.page) ?? base), notes: {}, markups: {}, markedSlides: [], flaggedSLOs: [], academicYear: activeYear, favorite: false });
+          const merged = mergeAiLectureBrief(lecture, await response.json(), slides, activeYear);
+          Object.assign(lecture, merged.lecture);
+          if (merged.rejectedFields.length) recordDiagnostic("upload", "Invalid Luna metadata was safely ignored", { ...diagnosticContext, rejectedFields: merged.rejectedFields });
         } else aiFailed = true;
       } catch { aiFailed = true; }
       onStage("saving");
       recordDiagnostic("upload", "Luna analysis finished; lecture save started", { ...diagnosticContext, pageCount, aiFailed });
       setUploadDiagnosticCheckpoint("saving", { ...diagnosticContext, pageCount, aiFailed });
-      await saveLecture(lecture, file);
-      setLectures((current) => [lecture, ...current]);
-      recordDiagnostic("upload", "Lecture import completed", { ...diagnosticContext, lectureId: lecture.id, pageCount, aiFailed });
+      const savedLecture = await saveLecture(lecture, file);
+      setLectures((current) => [savedLecture, ...current]);
+      recordDiagnostic("upload", "Lecture import completed", { ...diagnosticContext, lectureId: savedLecture.id, pageCount, aiFailed });
       clearUploadDiagnosticCheckpoint();
       if (aiFailed) setNotice(`${file.name} imported with local extraction because Luna was unavailable.`);
-      return lecture;
+      return savedLecture;
     } catch (error) {
       recordDiagnostic("upload", "Lecture import failed", { fileName: file.name, fileSizeBytes: file.size, error });
       clearUploadDiagnosticCheckpoint();
@@ -1619,7 +1674,7 @@ export default function Home() {
                   if (!courseLectures.length) return null;
                   const courseIds = courseLectures.map((lecture) => lecture.id);
                   const allCourseSelected = courseIds.every((id) => selectedExportLectureIds.has(id));
-                  const lecturers = Array.from(new Set(courseLectures.map((lecture) => lecture.lecturer))).sort((a, b) => lecturerFolderLabel(a).localeCompare(lecturerFolderLabel(b)));
+                  const lecturers = Array.from(new Set(courseLectures.map((lecture) => lecture.lecturer))).sort((a, b) => compareText(lecturerFolderLabel(a), lecturerFolderLabel(b)));
                   return <section className="export-course" key={course}><label className="export-folder course"><input type="checkbox" checked={allCourseSelected} onChange={() => setExportLectureSelection(courseIds, !allCourseSelected)}/><strong>{course}</strong><span>{courseLectures.length}</span></label>
                     <div>{lecturers.map((lecturer) => {
                       const lecturerLectures = courseLectures.filter((lecture) => lecture.lecturer === lecturer).sort((a, b) => lectureDateTimestamp(b.date) - lectureDateTimestamp(a.date));

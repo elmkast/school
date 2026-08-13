@@ -162,7 +162,7 @@ function normalizeMarkups(value: unknown): Record<number, InkStroke[]> {
   return Object.fromEntries(entries);
 }
 
-function normalizeLecture(value: unknown): Lecture | null {
+export function normalizeLecture(value: unknown): Lecture | null {
   if (!value || typeof value !== "object") return null;
   const lecture = value as Record<string, unknown>;
   const id = textValue(lecture.id);
@@ -336,16 +336,19 @@ export async function loadLectures(): Promise<Lecture[]> {
 }
 
 export async function saveLecture(lecture: Lecture, file?: Blob) {
+  const normalized = normalizeLecture(lecture);
+  if (!normalized) throw new Error("This lecture could not be normalized before saving.");
   const db = await openDatabase();
   const tx = db.transaction(["lectures", "files"], "readwrite");
-  tx.objectStore("lectures").put(lecture);
-  if (file) tx.objectStore("files").put({ id: lecture.id, file });
+  tx.objectStore("lectures").put(normalized);
+  if (file) tx.objectStore("files").put({ id: normalized.id, file });
   await new Promise<void>((resolve, reject) => {
     tx.oncomplete = () => resolve();
     tx.onerror = () => reject(tx.error);
   });
   db.close();
-  await attemptCloudSync(() => upsertCloudLecture(lecture, file));
+  await attemptCloudSync(() => upsertCloudLecture(normalized, file));
+  return normalized;
 }
 
 export async function saveLectures(lectures: Lecture[]) {
