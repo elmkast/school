@@ -8,12 +8,12 @@ export default async (request: Request) => {
   if (!apiKey) return Response.json({ error: "OPENAI_API_KEY is not configured" }, { status: 503 });
   const { lecture } = await request.json() as { lecture: LectureInput };
   if (!lecture?.slides?.length) return Response.json({ error: "No slide text supplied" }, { status: 400 });
-  const source = lecture.slides.map((s) => `[Page ${s.page}] ${s.text}`).join("\n").slice(0, 140_000);
-  const prompt = `You organize medical-school lecture material. Use only the supplied slide text. Never add outside medical facts. Return JSON with: title, lecturer, date, course, summary (2 sentences), slos (verbatim or lightly normalized), concepts (8-14 concise strings), and slides (8-20 high-value records with page, heading, text). Every slide record must retain the correct source page.\n\n${source}`;
+  const source = lecture.slides.map((s) => `[Page ${s.page}] ${s.text}`).join("\n").slice(0, 90_000);
+  const prompt = `You organize medical-school lecture material. Use only the supplied slide text. Never add outside medical facts. Return compact JSON with: title, lecturer, date, course, summary (2 sentences), outline (4-8 section headings in teaching order), slos (all stated learning objectives, verbatim or lightly normalized), and slides (up to 24 high-value records with page, heading, text). Prioritize SLOs, section headings, comparison tables, definitions, mechanisms, diagnostic distinctions, and treatment content. Every slide record must retain the correct source page.\n\n${source}`;
   const response = await fetch("https://api.openai.com/v1/responses", {
     method: "POST",
     headers: { "Authorization": `Bearer ${apiKey}`, "Content-Type": "application/json" },
-    body: JSON.stringify({ model: "gpt-5-mini", input: prompt, text: { format: { type: "json_object" } } }),
+    body: JSON.stringify({ model: "gpt-5.6-luna", input: prompt, reasoning: { effort: "low" }, text: { format: { type: "json_object" } }, max_output_tokens: 6500 }),
   });
   if (!response.ok) return Response.json({ error: "AI processing failed", detail: await response.text() }, { status: 502 });
   const data = await response.json() as { output_text?: string; output?: Array<{ content?: Array<{ text?: string }> }> };
