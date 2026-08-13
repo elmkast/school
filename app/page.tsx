@@ -76,6 +76,13 @@ const seedLectures: Lecture[] = [
   },
 ];
 
+function readableError(error: unknown) {
+  if (error instanceof Error && error.message) return error.message;
+  if (error && typeof error === "object" && "message" in error && typeof error.message === "string") return error.message;
+  if (typeof error === "string" && error.trim()) return error;
+  return "An unexpected cloud error occurred.";
+}
+
 function detectSLOs(slides: Slide[]) {
   const objectiveSlide = slides.find((slide) => /learning objectives?|session objectives?/i.test(slide.text));
   if (!objectiveSlide) return [];
@@ -1354,7 +1361,7 @@ export default function Home() {
       setCloudHasData(true);
       setNotice(`Cloud migration complete: ${result.counts.lectures} lectures, ${result.counts.preReads} pre-reads, and ${result.counts.concepts} concepts.`);
     } catch (error) {
-      setNotice(error instanceof Error ? `Migration stopped: ${error.message}` : "Migration stopped. Your local library is unchanged.");
+      setNotice(`Migration stopped: ${readableError(error)} Your local library is unchanged.`);
     } finally {
       setMigrationRunning(false);
     }
@@ -1408,7 +1415,7 @@ export default function Home() {
           </section>
           <button className={`nav-link concept-bank-link ${view === "concepts" ? "active" : ""}`} onClick={() => setView("concepts")}><strong>Concept Bank</strong><b>{concepts.filter((concept) => !concept.archived).length}</b></button>
         </nav>
-        <div className="side-bottom">{cloudSession ? <div className="cloud-account"><span><strong>Cloud library</strong><small>{cloudSession.user.email}</small></span><button type="button" onClick={() => void signOutCloud()}>Sign out</button></div> : <p><span><strong>Device library</strong><br/><small>Cloud connection not configured</small></span></p>}</div>
+        <div className="side-bottom">{cloudSession ? <div className="cloud-account"><span><strong>Cloud library</strong><small>{cloudSession.user.email}</small>{migrationRunning && migrationProgress && <small>Syncing {migrationProgress.completed} of {migrationProgress.total}</small>}</span><div className="cloud-account-actions"><button type="button" disabled={migrationRunning} onClick={() => void migrateThisDevice()}>{migrationRunning ? "Syncing…" : "Sync this device"}</button><button type="button" disabled={migrationRunning} onClick={() => void signOutCloud()}>Sign out</button></div></div> : <p><span><strong>Device library</strong><br/><small>Cloud connection not configured</small></span></p>}</div>
       </aside>
 
       <section className="workspace">

@@ -527,8 +527,10 @@ button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-vis
 .cloud-account span { min-width:0; display:grid; gap:3px; }
 .cloud-account strong { color:#d4d7da; font-size:11px; font-weight:650; }
 .cloud-account small { overflow:hidden; color:#858a92; font-size:9px; text-overflow:ellipsis; white-space:nowrap; }
+.cloud-account-actions { display:flex; flex-wrap:wrap; gap:6px; }
 .cloud-account button { justify-self:start; border:1px solid #464b51; border-radius:var(--radius-xs); background:transparent; color:#aeb3b8; padding:5px 8px; cursor:pointer; font-size:9px; }
 .cloud-account button:hover { border-color:#697078; color:#fff; }
+.cloud-account button:disabled { cursor:default; opacity:.5; }
 .cloud-migration-banner { margin:14px 32px 0; border:1px solid #adb9c0; border-radius:var(--radius-md); background:#f7f9fa; padding:16px 18px; display:flex; align-items:center; justify-content:space-between; gap:24px; }
 .cloud-migration-banner>div { min-width:0; }
 .cloud-migration-banner small { display:block; margin-bottom:4px; color:#63717a; font-size:8px; font-weight:750; letter-spacing:1.05px; }

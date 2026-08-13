@@ -70,6 +70,8 @@ Open `http://127.0.0.1:5173`. The Vite server keeps the OpenAI key off the brows
 
 On the first signed-in launch, FCOM.lib detects an empty cloud account and offers **Migrate this device**. Migration copies all local lecture records, PDFs, notes, markups, SLO flags, pre-reads, and concepts. It does not remove the local copies.
 
+Browser data belongs to the exact origin that created it. To migrate an existing local library, start FCOM.lib at the same address originally used (for this project, `http://127.0.0.1:5173`), sign into the cloud account there, and choose **Sync this device** in the lower-left account area. Opening the Netlify site cannot directly read IndexedDB owned by `127.0.0.1`.
+
 ## Deploy to Netlify
 
 1. Put this project in a Git repository and import it into Netlify, or use the Netlify CLI.
