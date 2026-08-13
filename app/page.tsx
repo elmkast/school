@@ -1,9 +1,10 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { deleteLecture, deletePreRead, getLectureFile, getPreReadFile, loadConcepts, loadLectures, loadPreReads, saveConcept, saveLecture, saveLectures, savePreRead, type ConceptRecord, type InkPoint, type InkStroke, type Lecture, type PreRead, type PreReadStatus, type Slide } from "../lib/lecture-store";
+import { deleteLecture, deletePreRead, getLectureFile, getPreReadFile, loadCloudLibrary, loadConcepts, loadLectures, loadPreReads, migrateLocalLibraryToCloud, saveConcept, saveLecture, saveLectures, savePreRead, setCloudUser, type ConceptRecord, type InkPoint, type InkStroke, type Lecture, type MigrationProgress, type PreRead, type PreReadStatus, type Slide } from "../lib/lecture-store";
 import { downloadSloExcel } from "../lib/slo-excel";
 import { downloadSloPdf } from "../lib/slo-pdf";
+import { cloudConfigured, supabase, type CloudSession } from "../lib/supabase-client";
 
 const seedLectures: Lecture[] = [
   {
@@ -585,6 +586,18 @@ export default function Home() {
   const [lecturerChoice, setLecturerChoice] = useState(NEW_LECTURER);
   const [newLecturerDraft, setNewLecturerDraft] = useState("");
   const [dateDraft, setDateDraft] = useState("");
+  const [localReady, setLocalReady] = useState(false);
+  const [authReady, setAuthReady] = useState(!cloudConfigured);
+  const [cloudReady, setCloudReady] = useState(!cloudConfigured);
+  const [cloudSession, setCloudSession] = useState<CloudSession | null>(null);
+  const [cloudHasData, setCloudHasData] = useState(false);
+  const [authMode, setAuthMode] = useState<"signin" | "signup">("signin");
+  const [authEmail, setAuthEmail] = useState("");
+  const [authPassword, setAuthPassword] = useState("");
+  const [authBusy, setAuthBusy] = useState(false);
+  const [authMessage, setAuthMessage] = useState("");
+  const [migrationRunning, setMigrationRunning] = useState(false);
+  const [migrationProgress, setMigrationProgress] = useState<MigrationProgress | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
   const preReadFileInput = useRef<HTMLInputElement>(null);
   const pendingUploads = useRef<UploadJob[]>([]);
@@ -607,7 +620,71 @@ export default function Home() {
         }
         else await saveLectures(seedLectures);
       } catch { setNotice("Local database is unavailable; using an in-memory trial library."); }
+      finally { setLocalReady(true); }
     })();
+  }, []);
+
+  useEffect(() => {
+    if (!supabase) return;
+    let active = true;
+    void supabase.auth.getSession().then(({ data, error }) => {
+      if (!active) return;
+      if (error) setAuthMessage(error.message);
+      setCloudSession(data.session);
+      setCloudUser(data.session?.user.id ?? null);
+      setAuthReady(true);
+    });
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (!active) return;
+      setCloudSession(session);
+      setCloudUser(session?.user.id ?? null);
+      setAuthReady(true);
+      if (!session) setCloudReady(true);
+    });
+    return () => {
+      active = false;
+      subscription.unsubscribe();
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!localReady || !cloudSession) return;
+    let cancelled = false;
+    setCloudReady(false);
+    setCloudUser(cloudSession.user.id);
+    void loadCloudLibrary()
+      .then((library) => {
+        if (cancelled) return;
+        const total = library.lectures.length + library.preReads.length + library.concepts.length;
+        setCloudHasData(total > 0);
+        if (!total) return;
+        setLectures(library.lectures);
+        setPreReads(library.preReads);
+        setConcepts(library.concepts);
+        if (library.lectures[0]) {
+          setActiveId(library.lectures[0].id);
+          setActiveYear(library.lectures[0].academicYear);
+          setExpandedYear(library.lectures[0].academicYear);
+          setActiveSloYear(library.lectures[0].academicYear);
+          setExpandedSloYear(library.lectures[0].academicYear);
+        }
+      })
+      .catch((error: unknown) => {
+        if (!cancelled) setNotice(error instanceof Error ? `Cloud library unavailable: ${error.message}` : "Cloud library unavailable. Run the Supabase setup script.");
+      })
+      .finally(() => { if (!cancelled) setCloudReady(true); });
+    return () => { cancelled = true; };
+  }, [cloudSession, localReady]);
+
+  useEffect(() => {
+    const handleError = (event: Event) => setNotice((event as CustomEvent<string>).detail || "Cloud sync failed. Your local copy is safe.");
+    const handleSuccess = () => setCloudHasData(true);
+    window.addEventListener("fcom-cloud-sync-error", handleError);
+    window.addEventListener("fcom-cloud-sync-ok", handleSuccess);
+    return () => {
+      window.removeEventListener("fcom-cloud-sync-error", handleError);
+      window.removeEventListener("fcom-cloud-sync-ok", handleSuccess);
+    };
   }, []);
 
   const viewerLecture = lectures.find((lecture) => lecture.id === viewerLectureId);
@@ -994,7 +1071,7 @@ export default function Home() {
 
   function openConceptSource(concept: ConceptRecord) {
     const lecture = lectures.find((item) => item.id === concept.lectureId);
-    if (!lecture) { setNotice("The source lecture is no longer available on this device."); return; }
+    if (!lecture) { setNotice("The source lecture is no longer available in your library."); return; }
     setActiveId(lecture.id);
     openLectureBrief(lecture.id, concept.page);
   }
@@ -1022,7 +1099,7 @@ export default function Home() {
     const updated = { ...viewerLecture, notes: { ...(viewerLecture.notes ?? {}), [selectedPage]: noteDraft } };
     setLectures((current) => current.map((lecture) => lecture.id === updated.id ? updated : lecture));
     await saveLecture(updated);
-    setNotice("Note saved on this device.");
+    setNotice(cloudSession ? "Note saved and synced." : "Note saved on this device.");
   }
 
   async function saveCurrentInk(strokes: InkStroke[]) {
@@ -1099,7 +1176,7 @@ export default function Home() {
 
   async function removeLecture(id: string) {
     const lecture = lectures.find((item) => item.id === id);
-    if (!lecture || !window.confirm(`Remove “${lecture.title}” and its locally stored PDF?`)) return;
+    if (!lecture || !window.confirm(`Remove “${lecture.title}” and its stored PDF?`)) return;
     await deleteLecture(id);
     const remaining = lectures.filter((item) => item.id !== id);
     setLectures(remaining);
@@ -1202,7 +1279,7 @@ export default function Home() {
       window.setTimeout(() => URL.revokeObjectURL(objectUrl), 60_000);
     } catch {
       tab?.close();
-      setNotice("The locally stored PDF could not be opened.");
+      setNotice("The stored PDF could not be opened.");
     }
   }
 
@@ -1240,6 +1317,74 @@ export default function Home() {
     setView("slos");
   }
 
+  async function submitCloudAuth(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!supabase || authBusy) return;
+    setAuthBusy(true);
+    setAuthMessage("");
+    try {
+      if (authMode === "signin") {
+        const { error } = await supabase.auth.signInWithPassword({ email: authEmail.trim(), password: authPassword });
+        if (error) throw error;
+      } else {
+        const { data, error } = await supabase.auth.signUp({
+          email: authEmail.trim(),
+          password: authPassword,
+          options: { emailRedirectTo: window.location.origin },
+        });
+        if (error) throw error;
+        if (!data.session) setAuthMessage("Account created. Check your email to confirm it, then sign in.");
+      }
+    } catch (error) {
+      setAuthMessage(error instanceof Error ? error.message : "Could not sign in.");
+    } finally {
+      setAuthBusy(false);
+    }
+  }
+
+  async function migrateThisDevice() {
+    if (migrationRunning) return;
+    setMigrationRunning(true);
+    setMigrationProgress(null);
+    try {
+      const result = await migrateLocalLibraryToCloud(setMigrationProgress);
+      setLectures(result.library.lectures);
+      setPreReads(result.library.preReads);
+      setConcepts(result.library.concepts);
+      setCloudHasData(true);
+      setNotice(`Cloud migration complete: ${result.counts.lectures} lectures, ${result.counts.preReads} pre-reads, and ${result.counts.concepts} concepts.`);
+    } catch (error) {
+      setNotice(error instanceof Error ? `Migration stopped: ${error.message}` : "Migration stopped. Your local library is unchanged.");
+    } finally {
+      setMigrationRunning(false);
+    }
+  }
+
+  async function signOutCloud() {
+    await supabase?.auth.signOut();
+    setCloudSession(null);
+    setCloudUser(null);
+    setCloudHasData(false);
+  }
+
+  if (cloudConfigured && (!authReady || (cloudSession && !cloudReady))) {
+    return <main className="cloud-gate"><section className="cloud-auth-card"><strong className="cloud-wordmark">FCOM.lib</strong><div className="cloud-loading" role="status">Opening your library…</div></section></main>;
+  }
+
+  if (cloudConfigured && !cloudSession) {
+    return <main className="cloud-gate"><section className="cloud-auth-card">
+      <strong className="cloud-wordmark">FCOM.lib</strong>
+      <div className="cloud-auth-heading"><small>PRIVATE CURRICULUM LIBRARY</small><h1>{authMode === "signin" ? "Sign in" : "Create your account"}</h1><p>Your lectures, annotations, SLOs, and concepts stay private to your account.</p></div>
+      <form onSubmit={submitCloudAuth}>
+        <label><span>Email</span><input type="email" autoComplete="email" value={authEmail} onChange={(event) => setAuthEmail(event.target.value)} required /></label>
+        <label><span>Password</span><input type="password" minLength={6} autoComplete={authMode === "signin" ? "current-password" : "new-password"} value={authPassword} onChange={(event) => setAuthPassword(event.target.value)} required /></label>
+        {authMessage && <p className="cloud-auth-message" role="status">{authMessage}</p>}
+        <button className="cloud-auth-submit" type="submit" disabled={authBusy}>{authBusy ? "Working…" : authMode === "signin" ? "Sign in" : "Create account"}</button>
+      </form>
+      <button className="cloud-auth-switch" type="button" onClick={() => { setAuthMode((current) => current === "signin" ? "signup" : "signin"); setAuthMessage(""); }}>{authMode === "signin" ? "New to FCOM.lib? Create an account" : "Already have an account? Sign in"}</button>
+    </section></main>;
+  }
+
   return (
     <main className="shell">
       <aside className="sidebar">
@@ -1263,7 +1408,7 @@ export default function Home() {
           </section>
           <button className={`nav-link concept-bank-link ${view === "concepts" ? "active" : ""}`} onClick={() => setView("concepts")}><strong>Concept Bank</strong><b>{concepts.filter((concept) => !concept.archived).length}</b></button>
         </nav>
-        <div className="side-bottom"><p><AppIcon name="spark"/><span><strong>Private trial</strong><br/><small>Stored on this device</small></span></p></div>
+        <div className="side-bottom">{cloudSession ? <div className="cloud-account"><span><strong>Cloud library</strong><small>{cloudSession.user.email}</small></span><button type="button" onClick={() => void signOutCloud()}>Sign out</button></div> : <p><span><strong>Device library</strong><br/><small>Cloud connection not configured</small></span></p>}</div>
       </aside>
 
       <section className="workspace">
@@ -1271,10 +1416,15 @@ export default function Home() {
           <label className="global-search"><AppIcon name="search"/><input aria-label="Search the curriculum" value={query} onChange={(e) => { setQuery(e.target.value); if (e.target.value) setView("search"); }}/></label>
           <button className="upload-button" onClick={() => fileInput.current?.click()}><AppIcon name="upload"/>{uploading ? "Add to queue" : "Add lectures"}</button>
           <input ref={fileInput} type="file" accept="application/pdf" multiple hidden onChange={(event) => { if (event.target.files?.length) enqueueFiles(event.target.files); event.target.value = ""; }}/>
-          <span className="avatar">EM</span>
+          <span className="avatar">{cloudSession?.user.email?.slice(0, 2).toUpperCase() ?? "EM"}</span>
         </header>
 
         {notice && <div className="notice" role="status" aria-live="polite"><span>{notice}</span><button aria-label="Dismiss" onClick={() => setNotice("")}><AppIcon name="x"/></button></div>}
+
+        {cloudSession && !cloudHasData && localReady && <section className="cloud-migration-banner" aria-label="Migrate local library">
+          <div><small>ONE-TIME CLOUD SETUP</small><strong>Move this device’s library into your private account</strong><p>This copies your lectures, PDFs, SLOs, notes, pre-reads, and concepts. The originals remain safely on this computer.</p>{migrationProgress && <span>{migrationProgress.completed} of {migrationProgress.total}: {migrationProgress.label}</span>}</div>
+          <button type="button" disabled={migrationRunning} onClick={() => void migrateThisDevice()}>{migrationRunning ? "Migrating…" : "Migrate this device"}</button>
+        </section>}
 
         {queueVisible && uploadQueue.length > 0 && <aside className="upload-queue" aria-label="Lecture import queue"><header><div><small>IMPORT QUEUE</small><strong>{finishedUploads} of {uploadQueue.length} finished</strong></div><button aria-label="Hide import queue" onClick={() => setQueueVisible(false)}><AppIcon name="x"/></button></header><div className="queue-jobs">{uploadQueue.map((job) => <div className={`queue-job ${job.status}`} key={job.id}><span className="queue-indicator"/><div><strong>{job.name}</strong><small>{uploadStatusLabel[job.status]}{activeUpload?.id === job.id ? " · Current" : nextUpload?.id === job.id ? " · Next" : ""}</small>{job.error && <em>{job.error}</em>}</div></div>)}</div><footer><button disabled={uploading} onClick={() => setUploadQueue((current) => current.filter((job) => job.status !== "done" && job.status !== "error"))}>Clear finished</button></footer></aside>}
 

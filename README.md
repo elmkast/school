@@ -1,6 +1,6 @@
 # FCOM.lib MVP
 
-A private, searchable lecture-slide library for medical school. This MVP imports PDF decks in the browser, extracts slide-level text, detects SLOs, stores the trial library on the current device, and provides exact keyword search with page references.
+A private, searchable lecture-slide library for medical school. It imports PDF decks in the browser, extracts slide-level text, detects SLOs, syncs a private curriculum library through Supabase, and provides exact keyword search with page references.
 
 See the [product feature and development specification](docs/MEDLIBRARY_PRODUCT_SPEC.md) for the complete feature register, architecture direction, risks, and phased roadmap.
 
@@ -9,7 +9,8 @@ See the [product feature and development specification](docs/MEDLIBRARY_PRODUCT_
 - Home, Lectures, search, SLO, and Concept Bank views
 - Two representative genetics lecture records
 - Browser-based PDF text extraction (no visual analysis)
-- Device-local trial persistence
+- Supabase email/password accounts, private cloud records, and private PDF storage
+- Device-local caching with a one-time, non-destructive migration into the cloud library
 - Netlify-ready production build
 - In-session Luna chat grounded in the current slide and nearby lecture context
 - Local PDF viewer and per-slide notes
@@ -43,10 +44,12 @@ See the [product feature and development specification](docs/MEDLIBRARY_PRODUCT_
 
 Requires Node.js 22 and pnpm.
 
-For the full local demo, create `.env.local` from `.env.example` and add your key locally:
+For the full local demo, create `.env.local` from `.env.example` and add your keys locally:
 
 ```text
 OPENAI_API_KEY=your_key_here
+VITE_SUPABASE_URL=https://your-project.supabase.co
+VITE_SUPABASE_PUBLISHABLE_KEY=sb_publishable_your_key_here
 ```
 
 Then run:
@@ -56,20 +59,28 @@ pnpm install
 pnpm dev:local
 ```
 
-Open `http://127.0.0.1:5173`. The Vite server keeps the OpenAI key off the browser, while lecture, pre-read, concept-bank records, and uploaded PDFs stay in IndexedDB on this device. Luna chat is intentionally session-only and is cleared when a lecture is reopened. If no key is present, importing, notes, the concept bank, and keyword search still work with local extraction.
+Open `http://127.0.0.1:5173`. The Vite server keeps the OpenAI key off the browser. Supabase's publishable key is intentionally available to the browser; row-level security protects each user's data. IndexedDB remains a local cache. Luna chat is intentionally session-only and is cleared when a lecture is reopened.
+
+## Configure Supabase once
+
+1. Open **Supabase Dashboard → SQL Editor → New query**.
+2. Copy and run [`supabase/migrations/202608120001_fcom_library.sql`](supabase/migrations/202608120001_fcom_library.sql). This creates the three private tables, the private `fcom-library` Storage bucket, and per-user access policies.
+3. In **Authentication → URL Configuration**, set the Site URL to the Netlify production URL. Add `http://127.0.0.1:5173/**` as an additional redirect URL while developing locally.
+4. In **Authentication → Providers → Email**, keep Email enabled. Choose whether email confirmation is required; confirmation is recommended before inviting additional users.
+
+On the first signed-in launch, FCOM.lib detects an empty cloud account and offers **Migrate this device**. Migration copies all local lecture records, PDFs, notes, markups, SLO flags, pre-reads, and concepts. It does not remove the local copies.
 
 ## Deploy to Netlify
 
 1. Put this project in a Git repository and import it into Netlify, or use the Netlify CLI.
 2. Netlify reads `netlify.toml`; no custom build settings are required.
-3. Add `OPENAI_API_KEY` in **Site configuration → Environment variables** to enable AI summaries.
+3. Add `OPENAI_API_KEY`, `VITE_SUPABASE_URL`, and `VITE_SUPABASE_PUBLISHABLE_KEY` in **Site configuration → Environment variables**. The OpenAI key is server-only; the two `VITE_` values are the browser-safe Supabase project URL and publishable key.
 4. Deploy.
 
-Without an API key, PDF import, SLO detection, device-local storage, browsing, and keyword search still work. The OpenAI key is read only by the Netlify function and is never exposed to the browser.
+The OpenAI key is read only by the Netlify function and is never exposed to the browser. Never place a Supabase secret key or service-role key in a `VITE_` variable.
 
-## Trial limitations
+## Current limitations
 
-- Uploaded data is saved in browser storage on one device; it does not sync across devices.
-- The original PDF is stored locally in this browser for the slide viewer; it is not uploaded by the local demo.
-- Search is structured keyword search across lecture metadata, SLOs, slide text, and saved pre-read text. Semantic search and cloud persistence belong in the next phase.
+- Search is structured keyword search across lecture metadata, SLOs, slide text, and saved pre-read text. Semantic search belongs in a later phase.
+- The first cloud migration runs in the open browser tab; keep that tab open until it reports completion.
 - This tool organizes source material; it is not a substitute for verifying the original slide or medical guidance.

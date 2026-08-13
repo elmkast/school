@@ -503,3 +503,43 @@ button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-vis
 .note-box textarea { background:#fff; }
 
 @media(max-width:760px){.shell{grid-template-columns:1fr}.sidebar{border-right:0}.luna-chat-form.fresh textarea{min-height:90px}}
+
+/* Supabase account and one-time device migration */
+.cloud-gate { min-height:100vh; display:grid; place-items:center; padding:24px; background:#eceeef; color:#202429; }
+.cloud-auth-card { width:min(430px,100%); border:1px solid #cfd3d6; border-radius:var(--radius-md); background:#fff; padding:34px; box-shadow:0 18px 50px #1c252b14; }
+.cloud-wordmark { display:block; padding-bottom:24px; border-bottom:1px solid #e1e3e5; font-size:16px; letter-spacing:-.2px; }
+.cloud-auth-heading { margin:27px 0 22px; }
+.cloud-auth-heading small { color:#6b7279; font-size:9px; font-weight:750; letter-spacing:1.15px; }
+.cloud-auth-heading h1 { margin:7px 0 8px; font-size:27px; line-height:1.15; letter-spacing:-.7px; }
+.cloud-auth-heading p { margin:0; color:#676e75; font-size:12px; line-height:1.55; }
+.cloud-auth-card form { display:grid; gap:14px; }
+.cloud-auth-card form label { display:grid; gap:6px; }
+.cloud-auth-card form label span { color:#4e555c; font-size:11px; font-weight:650; }
+.cloud-auth-card form input { width:100%; border:1px solid #c7ccd0; border-radius:var(--radius-sm); background:#fff; padding:10px 11px; color:#24292e; outline:0; font-size:13px; }
+.cloud-auth-card form input:focus { border-color:#778b98; box-shadow:0 0 0 3px #e3e8eb; }
+.cloud-auth-submit { min-height:41px; border:1px solid #22282d; border-radius:var(--radius-sm); background:#22282d; color:#fff; cursor:pointer; font-size:12px; font-weight:650; }
+.cloud-auth-submit:hover { background:#0f1215; }
+.cloud-auth-submit:disabled { cursor:default; opacity:.55; }
+.cloud-auth-switch { width:100%; margin-top:17px; border:0; background:none; color:#506878; cursor:pointer; font-size:11px; }
+.cloud-auth-message { margin:0; border-left:3px solid #738c9b; background:#eef2f4; padding:9px 10px; color:#3f4b53; font-size:11px; line-height:1.45; }
+.cloud-loading { padding:38px 0 8px; color:#656d74; font-size:13px; }
+.cloud-account { padding:13px 2px 0; display:grid; gap:10px; }
+.cloud-account span { min-width:0; display:grid; gap:3px; }
+.cloud-account strong { color:#d4d7da; font-size:11px; font-weight:650; }
+.cloud-account small { overflow:hidden; color:#858a92; font-size:9px; text-overflow:ellipsis; white-space:nowrap; }
+.cloud-account button { justify-self:start; border:1px solid #464b51; border-radius:var(--radius-xs); background:transparent; color:#aeb3b8; padding:5px 8px; cursor:pointer; font-size:9px; }
+.cloud-account button:hover { border-color:#697078; color:#fff; }
+.cloud-migration-banner { margin:14px 32px 0; border:1px solid #adb9c0; border-radius:var(--radius-md); background:#f7f9fa; padding:16px 18px; display:flex; align-items:center; justify-content:space-between; gap:24px; }
+.cloud-migration-banner>div { min-width:0; }
+.cloud-migration-banner small { display:block; margin-bottom:4px; color:#63717a; font-size:8px; font-weight:750; letter-spacing:1.05px; }
+.cloud-migration-banner strong { display:block; color:#242a2f; font-size:13px; }
+.cloud-migration-banner p { margin:5px 0 0; color:#687078; font-size:11px; line-height:1.45; }
+.cloud-migration-banner div>span { display:block; margin-top:7px; overflow:hidden; color:#52636e; font-size:10px; text-overflow:ellipsis; white-space:nowrap; }
+.cloud-migration-banner>button { flex:none; border:1px solid #293137; border-radius:var(--radius-sm); background:#293137; color:#fff; padding:9px 12px; cursor:pointer; font-size:11px; font-weight:650; }
+.cloud-migration-banner>button:disabled { cursor:default; opacity:.55; }
+
+@media(max-width:760px){
+  .cloud-auth-card{padding:26px 22px}
+  .cloud-migration-banner{margin:12px 16px 0;align-items:flex-start;flex-direction:column;gap:12px}
+  .cloud-migration-banner>button{width:100%}
+}
