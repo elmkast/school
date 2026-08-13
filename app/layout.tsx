@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "MedLibrary — Lecture intelligence",
+  title: "FCOM.lib",
   description: "A private, searchable lecture library for medical school.",
   icons: { icon: "/favicon.svg", shortcut: "/favicon.svg" },
 };
