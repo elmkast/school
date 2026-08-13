@@ -2,6 +2,9 @@ import { Component, StrictMode, type ErrorInfo, type ReactNode } from "react";
 import { createRoot } from "react-dom/client";
 import Home from "../app/page";
 import "../app/globals.css";
+import { downloadDiagnostics, installGlobalDiagnostics, recordDiagnostic } from "../lib/diagnostics";
+
+installGlobalDiagnostics();
 
 class AppErrorBoundary extends Component<{ children: ReactNode }, { failed: boolean }> {
   state = { failed: false };
@@ -12,10 +15,11 @@ class AppErrorBoundary extends Component<{ children: ReactNode }, { failed: bool
 
   componentDidCatch(error: Error, info: ErrorInfo) {
     console.error("FCOM.lib could not render", error, info);
+    recordDiagnostic("render-error", "React stopped rendering the application", { error, componentStack: info.componentStack ?? "Unavailable" });
   }
 
   render() {
-    if (this.state.failed) return <main className="app-failure"><div><h1>FCOM.lib could not finish opening</h1><p>Your locally stored lectures have not been deleted. Reload the page to try again.</p><button onClick={() => window.location.reload()}>Reload FCOM.lib</button></div></main>;
+    if (this.state.failed) return <main className="app-failure"><div><h1>FCOM.lib could not finish opening</h1><p>Your locally stored lectures have not been deleted. Download the diagnostic log before reloading if you want to report this failure.</p><div className="app-failure-actions"><button onClick={() => window.location.reload()}>Reload FCOM.lib</button><button className="secondary" onClick={downloadDiagnostics}>Download diagnostics</button></div></div></main>;
     return this.props.children;
   }
 }

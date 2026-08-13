@@ -5,6 +5,7 @@ import { deleteLecture, deletePreRead, getLectureFile, getPreReadFile, loadCloud
 import { downloadSloExcel } from "../lib/slo-excel";
 import { downloadSloPdf } from "../lib/slo-pdf";
 import { cloudConfigured, supabase, type CloudSession } from "../lib/supabase-client";
+import { clearUploadDiagnosticCheckpoint, downloadDiagnostics, recordDiagnostic, setUploadDiagnosticCheckpoint } from "../lib/diagnostics";
 
 const seedLectures: Lecture[] = [
   {
@@ -132,7 +133,8 @@ function displayDateFromInput(value: string) {
 }
 
 type UploadStatus = "queued" | "extracting" | "analyzing" | "saving" | "done" | "error";
-type UploadJob = { id: string; file: File; name: string; status: UploadStatus; error?: string };
+type UploadJob = { id: string; name: string; status: UploadStatus; error?: string };
+type PendingUpload = { id: string; file: File };
 type SearchKind = "lecture" | "slo" | "slide" | "preread";
 type LectureSearchResult = {
   kind: "lecture" | "slo" | "slide";
@@ -607,7 +609,7 @@ export default function Home() {
   const [migrationProgress, setMigrationProgress] = useState<MigrationProgress | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
   const preReadFileInput = useRef<HTMLInputElement>(null);
-  const pendingUploads = useRef<UploadJob[]>([]);
+  const pendingUploads = useRef<PendingUpload[]>([]);
   const uploadRunnerActive = useRef(false);
 
   useEffect(() => {
@@ -983,30 +985,55 @@ export default function Home() {
     if (file.type !== "application/pdf" && !file.name.toLowerCase().endsWith(".pdf")) {
       throw new Error("Please choose a PDF lecture deck.");
     }
+    const diagnosticContext = { fileName: file.name, fileSizeBytes: file.size, fileType: file.type || "unknown" };
+    recordDiagnostic("upload", "Lecture import started", diagnosticContext);
+    setUploadDiagnosticCheckpoint("starting", diagnosticContext);
     onStage("extracting");
     try {
       const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
       pdfjs.GlobalWorkerOptions.workerSrc = new URL("pdfjs-dist/legacy/build/pdf.worker.min.mjs", import.meta.url).toString();
-      const data = new Uint8Array(await file.arrayBuffer());
+      let data = new Uint8Array(await file.arrayBuffer());
       const pdf = await pdfjs.getDocument({ data }).promise;
+      const pageCount = pdf.numPages;
+      recordDiagnostic("upload", "PDF opened for text extraction", { ...diagnosticContext, pageCount });
+      setUploadDiagnosticCheckpoint("extracting", { ...diagnosticContext, pageCount });
       const slides: Slide[] = [];
-      for (let page = 1; page <= pdf.numPages; page++) {
+      try {
+      for (let page = 1; page <= pageCount; page++) {
         const pdfPage = await pdf.getPage(page);
+        try {
         const content = await pdfPage.getTextContent();
         const text = content.items.map((item) => "str" in item ? item.str : "").join(" ").replace(/\s+/g, " ").trim();
         const heading = text.split(/(?<=[a-z])\s{2,}|[•]/)[0]?.replace(/^\d+\s*/, "").slice(0, 110) || `Slide ${page}`;
         slides.push({ page, text, heading });
+        } finally {
+          pdfPage.cleanup();
+        }
+      }
+      } finally {
+        try { pdf.cleanup(); } catch { /* PDF.js may already have released these resources. */ }
+        try { await pdf.destroy(); } catch { /* Cleanup must not fail an otherwise successful import. */ }
+        data = new Uint8Array(0);
       }
       const first = slides[0]?.text ?? file.name.replace(/\.pdf$/i, "");
       const title = first.replace(/^\d+\s*/, "").split(/(?:August|September|October|November|December|January|February|March|April|May|June|July)\s+\d+/i)[0].replace(/[“”"]/g, "").trim().slice(0, 100) || file.name.replace(/\.pdf$/i, "");
       const lecture: Lecture = {
         id: crypto.randomUUID(), title, lecturer: "Lecturer not detected", date: new Date().toLocaleDateString(), course: "Unsorted",
-        academicYear: activeYear, favorite: false, pages: pdf.numPages, slos: detectSLOs(slides), concepts: deriveConcepts(slides), outline: [], summary: `Imported ${pdf.numPages} slides. Review the slide index and SLOs below; an AI brief will be added when available.`, slides, notes: {}, markups: {}, markedSlides: [], flaggedSLOs: [], fileName: file.name, createdAt: new Date().toISOString(),
+        academicYear: activeYear, favorite: false, pages: pageCount, slos: detectSLOs(slides), concepts: deriveConcepts(slides), outline: [], summary: `Imported ${pageCount} slides. Review the slide index and SLOs below; an AI brief will be added when available.`, slides, notes: {}, markups: {}, markedSlides: [], flaggedSLOs: [], fileName: file.name, createdAt: new Date().toISOString(),
       };
       onStage("analyzing");
+      recordDiagnostic("upload", "PDF extraction finished; Luna analysis started", { ...diagnosticContext, pageCount, extractedCharacters: slides.reduce((total, slide) => total + slide.text.length, 0) });
+      setUploadDiagnosticCheckpoint("analyzing", { ...diagnosticContext, pageCount });
       let aiFailed = false;
       try {
-        const response = await fetch(aiEndpoint("analyze"), { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ lecture }) });
+        let remainingAnalysisCharacters = 90_000;
+        const analysisSlides = slides.flatMap((slide) => {
+          if (remainingAnalysisCharacters <= 0) return [];
+          const text = slide.text.slice(0, remainingAnalysisCharacters);
+          remainingAnalysisCharacters -= text.length;
+          return [{ ...slide, text }];
+        });
+        const response = await fetch(aiEndpoint("analyze"), { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ lecture: { ...lecture, slides: analysisSlides } }) });
         if (response.ok) {
           const brief = await response.json() as Partial<Lecture>;
           const briefSlides = Array.isArray(brief.slides) ? brief.slides : [];
@@ -1014,11 +1041,17 @@ export default function Home() {
         } else aiFailed = true;
       } catch { aiFailed = true; }
       onStage("saving");
-      setLectures((current) => [lecture, ...current]);
+      recordDiagnostic("upload", "Luna analysis finished; lecture save started", { ...diagnosticContext, pageCount, aiFailed });
+      setUploadDiagnosticCheckpoint("saving", { ...diagnosticContext, pageCount, aiFailed });
       await saveLecture(lecture, file);
+      setLectures((current) => [lecture, ...current]);
+      recordDiagnostic("upload", "Lecture import completed", { ...diagnosticContext, lectureId: lecture.id, pageCount, aiFailed });
+      clearUploadDiagnosticCheckpoint();
       if (aiFailed) setNotice(`${file.name} imported with local extraction because Luna was unavailable.`);
       return lecture;
     } catch (error) {
+      recordDiagnostic("upload", "Lecture import failed", { fileName: file.name, fileSizeBytes: file.size, error });
+      clearUploadDiagnosticCheckpoint();
       throw error instanceof Error ? error : new Error("This PDF could not be processed.");
     }
   }
@@ -1031,27 +1064,38 @@ export default function Home() {
     if (uploadRunnerActive.current) return;
     uploadRunnerActive.current = true;
     setUploading(true);
-    while (pendingUploads.current.length) {
-      const job = pendingUploads.current.shift();
-      if (!job) continue;
-      try {
-        await importLecture(job.file, (status) => updateUploadJob(job.id, { status }));
-        updateUploadJob(job.id, { status: "done" });
-      } catch (error) {
-        updateUploadJob(job.id, { status: "error", error: error instanceof Error ? error.message : "Import failed" });
+    try {
+      while (pendingUploads.current.length) {
+        const job = pendingUploads.current.shift();
+        if (!job) continue;
+        try {
+          await importLecture(job.file, (status) => updateUploadJob(job.id, { status }));
+          updateUploadJob(job.id, { status: "done" });
+        } catch (error) {
+          updateUploadJob(job.id, { status: "error", error: error instanceof Error ? error.message : "Import failed" });
+        }
+        // Give the UI and garbage collector time to release the completed PDF before opening the next one.
+        await new Promise<void>((resolve) => window.setTimeout(resolve, 50));
       }
+    } finally {
+      uploadRunnerActive.current = false;
+      setUploading(false);
+      setNotice("Lecture import queue finished.");
+      // Do not strand a file added at the exact end of a queue run.
+      if (pendingUploads.current.length) void runUploadQueue();
     }
-    uploadRunnerActive.current = false;
-    setUploading(false);
-    setNotice("Lecture import queue finished.");
   }
 
   function enqueueFiles(fileList: FileList | File[]) {
     const files = Array.from(fileList).filter((file) => file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf"));
     if (!files.length) { setNotice("Please choose one or more PDF lecture decks."); return; }
-    const jobs = files.map<UploadJob>((file) => ({ id: crypto.randomUUID(), file, name: file.name, status: "queued" }));
-    pendingUploads.current.push(...jobs);
-    setUploadQueue((current) => [...current, ...jobs]);
+    const entries = files.map((file) => {
+      const id = crypto.randomUUID();
+      return { pending: { id, file }, display: { id, name: file.name, status: "queued" as const } };
+    });
+    // Keep raw PDFs out of React state so each completed file can be garbage-collected.
+    pendingUploads.current.push(...entries.map(({ pending }) => pending));
+    setUploadQueue((current) => [...current, ...entries.map(({ display }) => display)]);
     setQueueVisible(true);
     void runUploadQueue();
   }
@@ -1415,7 +1459,7 @@ export default function Home() {
           </section>
           <button className={`nav-link concept-bank-link ${view === "concepts" ? "active" : ""}`} onClick={() => setView("concepts")}><strong>Concept Bank</strong><b>{concepts.filter((concept) => !concept.archived).length}</b></button>
         </nav>
-        <div className="side-bottom">{cloudSession ? <div className="cloud-account"><span><strong>Cloud library</strong><small>{cloudSession.user.email}</small>{migrationRunning && migrationProgress && <small>Syncing {migrationProgress.completed} of {migrationProgress.total}</small>}</span><div className="cloud-account-actions"><button type="button" disabled={migrationRunning} onClick={() => void migrateThisDevice()}>{migrationRunning ? "Syncing…" : "Sync this device"}</button><button type="button" disabled={migrationRunning} onClick={() => void signOutCloud()}>Sign out</button></div></div> : <p><span><strong>Device library</strong><br/><small>Cloud connection not configured</small></span></p>}</div>
+        <div className="side-bottom">{cloudSession ? <div className="cloud-account"><span><strong>Cloud library</strong><small>{cloudSession.user.email}</small>{migrationRunning && migrationProgress && <small>Syncing {migrationProgress.completed} of {migrationProgress.total}</small>}</span><div className="cloud-account-actions"><button type="button" disabled={migrationRunning} onClick={() => void migrateThisDevice()}>{migrationRunning ? "Syncing…" : "Sync this device"}</button><button type="button" onClick={downloadDiagnostics}>Diagnostics</button><button type="button" disabled={migrationRunning} onClick={() => void signOutCloud()}>Sign out</button></div></div> : <p><span><strong>Device library</strong><br/><small>Cloud connection not configured</small><button className="device-diagnostics" type="button" onClick={downloadDiagnostics}>Diagnostics</button></span></p>}</div>
       </aside>
 
       <section className="workspace">
