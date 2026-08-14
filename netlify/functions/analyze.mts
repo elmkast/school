@@ -1,6 +1,6 @@
 declare const Netlify: { env: { get(name: string): string | undefined } };
 
-type LectureInput = { title: string; lecturer: string; date: string; pages: number; slides: { page: number; text: string }[]; slos: string[] };
+type LectureInput = { title: string; lecturer: string; pages: number; slides: { page: number; text: string }[]; slos: string[] };
 
 export default async (request: Request) => {
   if (request.method !== "POST") return new Response("Method not allowed", { status: 405 });
@@ -9,7 +9,7 @@ export default async (request: Request) => {
   const { lecture } = await request.json() as { lecture: LectureInput };
   if (!lecture?.slides?.length) return Response.json({ error: "No slide text supplied" }, { status: 400 });
   const source = lecture.slides.map((s) => `[Page ${s.page}] ${s.text}`).join("\n").slice(0, 90_000);
-  const prompt = `You organize medical-school lecture material. Use only the supplied slide text. Never add outside medical facts. Return compact JSON with: title, lecturer, date, course, summary (2 sentences), outline (4-8 section headings in teaching order), slos (all stated learning objectives, verbatim or lightly normalized), and slides (up to 24 high-value records with page, heading, text). Prioritize SLOs, section headings, comparison tables, definitions, mechanisms, diagnostic distinctions, and treatment content. Every slide record must retain the correct source page.\n\n${source}`;
+  const prompt = `You organize medical-school lecture material. Use only the supplied slide text. Never add outside medical facts. Return compact JSON with: title, lecturer, course, summary (2 sentences), outline (4-8 section headings in teaching order), slos (all stated learning objectives, verbatim or lightly normalized), and slides (up to 24 high-value records with page, heading, text). Do not infer a curriculum week; the student assigns that manually. Prioritize SLOs, section headings, comparison tables, definitions, mechanisms, diagnostic distinctions, and treatment content. Every slide record must retain the correct source page.\n\n${source}`;
   const response = await fetch("https://api.openai.com/v1/responses", {
     method: "POST",
     headers: { "Authorization": `Bearer ${apiKey}`, "Content-Type": "application/json" },

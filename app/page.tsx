@@ -1,13 +1,13 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { deleteLecture, deletePreRead, getLectureFile, getPreReadFile, loadCloudLibrary, loadConcepts, loadLectures, loadPreReads, migrateLocalLibraryToCloud, normalizeLecture, saveConcept, saveLecture, saveLectures, savePreRead, setCloudUser, type ConceptRecord, type InkStroke, type Lecture, type MigrationProgress, type PreRead, type PreReadStatus, type QuestionRecord, type QuestionType, type Slide } from "../lib/lecture-store";
+import { deleteLecture, deletePreRead, getLectureFile, getPreReadFile, loadCloudLibrary, loadLectures, loadPreReads, migrateLocalLibraryToCloud, normalizeLecture, saveLecture, saveLectures, savePreRead, setCloudUser, type InkStroke, type Lecture, type MigrationProgress, type PreRead, type PreReadStatus, type QuestionRecord, type QuestionType, type Slide } from "../lib/lecture-store";
 import { downloadSloExcel } from "../lib/slo-excel";
 import { downloadSloPdf } from "../lib/slo-pdf";
 import { cloudConfigured, supabase, type CloudSession } from "../lib/supabase-client";
 import { clearUploadDiagnosticCheckpoint, downloadDiagnostics, recordDiagnostic, setUploadDiagnosticCheckpoint } from "../lib/diagnostics";
-import { ALL_LECTURERS, NEW_LECTURER, compareText, dateInputValue, displayDateFromInput, lectureDateTimestamp, lecturerFolderLabel } from "../lib/curriculum";
-import { searchMatchScore, searchResultCollectionTitle, searchResultTimestamp, type LectureSearchResult, type PreReadSearchResult, type SearchKind, type SearchResult } from "../lib/curriculum-search";
+import { ALL_LECTURERS, LECTURE_WEEK_OPTIONS, NEW_LECTURER, compareLectureWeeks, compareText, lectureWeekLabel, lecturerFolderLabel } from "../lib/curriculum";
+import { searchMatchScore, searchResultCollectionTitle, searchResultWeek, type LectureSearchResult, type PreReadSearchResult, type SearchKind, type SearchResult } from "../lib/curriculum-search";
 import { shuffleItems, type QuestionDraft, type QuizMode, type QuizQuestion, type QuizResponse } from "../lib/questions";
 import { seedLectures } from "../lib/seed-lectures";
 import { AppIcon } from "./components/AppIcon";
@@ -29,10 +29,6 @@ function detectSLOs(slides: Slide[]) {
   return numbered.length > 1 ? numbered : body.split(/\n+/).map((value) => value.trim()).filter((value) => value.length > 25);
 }
 
-function deriveConcepts(slides: Slide[]) {
-  return Array.from(new Set(slides.map((slide) => slide.heading.replace(/^\d+\s*/, "").replace(/[:–-].*$/, "").trim()).filter((heading) => heading.length > 3 && !/^slide \d+$/i.test(heading)))).slice(0, 14);
-}
-
 function currentAcademicYear() {
   const now = new Date();
   const start = now.getMonth() >= 6 ? now.getFullYear() : now.getFullYear() - 1;
@@ -43,7 +39,7 @@ function mergeAiLectureBrief(base: Lecture, response: unknown, sourceSlides: Sli
   const brief = response && typeof response === "object" && !Array.isArray(response) ? response as Record<string, unknown> : {};
   const accepted: Record<string, unknown> = {};
   const rejectedFields: string[] = [];
-  const stringFields = ["title", "lecturer", "date", "course", "summary"] as const;
+  const stringFields = ["title", "lecturer", "course", "summary"] as const;
   const listFields = ["outline", "slos"] as const;
 
   stringFields.forEach((field) => {
@@ -134,10 +130,9 @@ const preReadStatusLabel: Record<PreReadStatus, string> = {
 export default function Home() {
   const [lectures, setLectures] = useState<Lecture[]>(seedLectures);
   const [preReads, setPreReads] = useState<PreRead[]>([]);
-  const [concepts, setConcepts] = useState<ConceptRecord[]>([]);
   const [activeId, setActiveId] = useState(seedLectures[0].id);
   const [query, setQuery] = useState("");
-  const [view, setView] = useState<"home" | "library" | "favorites" | "search" | "slos" | "prereads" | "concepts" | "questions">("home");
+  const [view, setView] = useState<"home" | "library" | "favorites" | "search" | "slos" | "prereads" | "questions">("home");
   const [activeYear, setActiveYear] = useState(currentAcademicYear());
   const [expandedYear, setExpandedYear] = useState<string | null>(currentAcademicYear());
   const [expandedCourse, setExpandedCourse] = useState<string | null>(null);
@@ -188,7 +183,7 @@ export default function Home() {
   const [sloExportOpen, setSloExportOpen] = useState(false);
   const [selectedExportLectureIds, setSelectedExportLectureIds] = useState<Set<string>>(new Set());
   const [sloExportFormat, setSloExportFormat] = useState<"pdf" | "excel">("pdf");
-  const [sloExportSort, setSloExportSort] = useState<"date" | "lecturer">("date");
+  const [sloExportSort, setSloExportSort] = useState<"week" | "lecturer">("week");
   const [includeProgressTracker, setIncludeProgressTracker] = useState(false);
   const [sloReparseLectureId, setSloReparseLectureId] = useState("");
   const [sloReparseInstruction, setSloReparseInstruction] = useState("");
@@ -198,8 +193,8 @@ export default function Home() {
   const [searchYear, setSearchYear] = useState("all");
   const [searchCourse, setSearchCourse] = useState("all");
   const [searchLecturer, setSearchLecturer] = useState("all");
-  const [searchSort, setSearchSort] = useState<"relevance" | "date-desc" | "name-asc">("relevance");
-  const [lectureSort, setLectureSort] = useState<"date-desc" | "name-asc">("date-desc");
+  const [searchSort, setSearchSort] = useState<"relevance" | "week-asc" | "name-asc">("relevance");
+  const [lectureSort, setLectureSort] = useState<"week-asc" | "name-asc">("week-asc");
   const [uploading, setUploading] = useState(false);
   const [uploadQueue, setUploadQueue] = useState<UploadJob[]>([]);
   const [queueVisible, setQueueVisible] = useState(false);
@@ -209,8 +204,6 @@ export default function Home() {
   const [selectedPage, setSelectedPage] = useState(1);
   const [viewerFile, setViewerFile] = useState<Blob | null>(null);
   const [viewerFileLectureId, setViewerFileLectureId] = useState("");
-  const [selectedPdfText, setSelectedPdfText] = useState("");
-  const [conceptFilter, setConceptFilter] = useState<"active" | "archived">("active");
   const [chatMessages, setChatMessages] = useState<LunaChatMessage[]>([]);
   const [chatDraft, setChatDraft] = useState("");
   const [chatLoading, setChatLoading] = useState(false);
@@ -220,7 +213,7 @@ export default function Home() {
   const [courseDraft, setCourseDraft] = useState("");
   const [lecturerChoice, setLecturerChoice] = useState(NEW_LECTURER);
   const [newLecturerDraft, setNewLecturerDraft] = useState("");
-  const [dateDraft, setDateDraft] = useState("");
+  const [weekDraft, setWeekDraft] = useState("");
   const [localReady, setLocalReady] = useState(false);
   const [authReady, setAuthReady] = useState(!cloudConfigured);
   const [cloudReady, setCloudReady] = useState(!cloudConfigured);
@@ -241,9 +234,8 @@ export default function Home() {
   useEffect(() => {
     void (async () => {
       try {
-        const [saved, savedPreReads, savedConcepts] = await Promise.all([loadLectures(), loadPreReads(), loadConcepts()]);
+        const [saved, savedPreReads] = await Promise.all([loadLectures(), loadPreReads()]);
         setPreReads(savedPreReads);
-        setConcepts(savedConcepts);
         if (saved.length) {
           setLectures(saved);
           setActiveId(saved[0].id);
@@ -290,12 +282,11 @@ export default function Home() {
     void loadCloudLibrary()
       .then((library) => {
         if (cancelled) return;
-        const total = library.lectures.length + library.preReads.length + library.concepts.length;
+        const total = library.lectures.length + library.preReads.length;
         setCloudHasData(total > 0);
         if (!total) return;
         setLectures(library.lectures);
         setPreReads(library.preReads);
-        setConcepts(library.concepts);
         if (library.lectures[0]) {
           setActiveId(library.lectures[0].id);
           setActiveYear(library.lectures[0].academicYear);
@@ -341,7 +332,7 @@ export default function Home() {
           && (activeLecturer === ALL_LECTURERS || lecture.lecturer === activeLecturer));
     return [...filtered].sort((a, b) => lectureSort === "name-asc"
       ? compareText(a.title, b.title)
-      : lectureDateTimestamp(b.date) - lectureDateTimestamp(a.date) || compareText(a.title, b.title));
+      : compareLectureWeeks(a.week, b.week) || compareText(a.title, b.title));
   }, [lectures, view, allLecturesSelected, activeYear, activeCourse, activeLecturer, lectureSort]);
   const displayActive = visibleLectures.find((lecture) => lecture.id === activeId) ?? visibleLectures[0];
   const visibleSloLectures = useMemo(() => {
@@ -354,7 +345,7 @@ export default function Home() {
           && (activeSloLecturer === ALL_LECTURERS || lecture.lecturer === activeSloLecturer));
     return filtered
       .filter((lecture) => lecture.slos.length > 0)
-      .sort((a, b) => lectureDateTimestamp(b.date) - lectureDateTimestamp(a.date) || compareText(a.title, b.title));
+      .sort((a, b) => compareLectureWeeks(a.week, b.week) || compareText(a.title, b.title));
   }, [lectures, flaggedSLOsSelected, allSLOsSelected, activeSloYear, activeSloCourse, activeSloLecturer]);
   const questionLectures = useMemo(() => lectures.filter((lecture) => lecture.questions.length > 0), [lectures]);
   const questionAcademicYears = useMemo(() => Array.from(new Set(questionLectures.map((lecture) => lecture.academicYear))).sort().reverse(), [questionLectures]);
@@ -368,20 +359,16 @@ export default function Home() {
       : questionLectures.filter((lecture) => lecture.academicYear === activeQuestionYear
         && (activeQuestionCourse === "All courses" || lecture.course === activeQuestionCourse)
         && (activeQuestionLecturer === ALL_LECTURERS || lecture.lecturer === activeQuestionLecturer));
-    return [...filtered].sort((a, b) => lectureDateTimestamp(b.date) - lectureDateTimestamp(a.date) || compareText(a.title, b.title));
+    return [...filtered].sort((a, b) => compareLectureWeeks(a.week, b.week) || compareText(a.title, b.title));
   }, [questionLectures, allQuestionsSelected, activeQuestionYear, activeQuestionCourse, activeQuestionLecturer]);
   const homeFlaggedLectures = useMemo(() => lectures
     .filter((lecture) => lecture.flaggedSLOs.some((index) => Boolean(lecture.slos[index])))
-    .sort((a, b) => lectureDateTimestamp(b.date) - lectureDateTimestamp(a.date) || compareText(a.title, b.title)), [lectures]);
+    .sort((a, b) => compareLectureWeeks(a.week, b.week) || compareText(a.title, b.title)), [lectures]);
   const visiblePreReads = useMemo(() => preReads
     .filter((preRead) => preReadFilter === "all" || preRead.status === preReadFilter)
     .sort((a, b) => compareText(b.createdAt, a.createdAt) || compareText(a.title, b.title)), [preReads, preReadFilter]);
   const previewPreRead = preReads.find((preRead) => preRead.id === previewPreReadId);
-  const visibleConcepts = useMemo(() => concepts.filter((concept) => concept.archived === (conceptFilter === "archived")), [concepts, conceptFilter]);
   const viewerFlaggedSLOs = viewerLecture?.flaggedSLOs.map((index) => viewerLecture.slos[index]).filter(Boolean) ?? [];
-  const viewerPageConceptTexts = useMemo(() => concepts
-    .filter((concept) => concept.lectureId === viewerLectureId && concept.page === selectedPage)
-    .map((concept) => concept.text), [concepts, viewerLectureId, selectedPage]);
 
   useEffect(() => {
     let cancelled = false;
@@ -405,7 +392,6 @@ export default function Home() {
         const page = event.key === "ArrowLeft" ? Math.max(1, selectedPage - 1) : Math.min(viewerLecture.pages, selectedPage + 1);
         setSelectedPage(page);
         setNoteDraft(viewerLecture.notes?.[page] ?? "");
-        setSelectedPdfText("");
       }
     };
     window.addEventListener("keydown", handleKey);
@@ -491,11 +477,11 @@ export default function Home() {
           if (score > 0) matches.push({ kind: "preread", preRead, title: preRead.title, text: preRead.text, score });
         }
       });
-    return matches.sort((a, b) => searchSort === "date-desc"
-      ? searchResultTimestamp(b) - searchResultTimestamp(a) || b.score - a.score
+    return matches.sort((a, b) => searchSort === "week-asc"
+      ? searchResultWeek(a) - searchResultWeek(b) || b.score - a.score
       : searchSort === "name-asc"
         ? compareText(searchResultCollectionTitle(a), searchResultCollectionTitle(b)) || compareText(a.title, b.title)
-        : b.score - a.score || searchResultTimestamp(b) - searchResultTimestamp(a));
+        : b.score - a.score || searchResultWeek(a) - searchResultWeek(b));
   }, [lectures, preReads, query, searchMode, searchYear, searchCourse, searchLecturer, searchSort]);
   const groupedResults = useMemo(() => ({
     lecture: results.filter((result) => result.kind === "lecture"),
@@ -510,7 +496,6 @@ export default function Home() {
     setSelectedPage(targetPage);
     setViewerFile(null);
     setViewerFileLectureId("");
-    setSelectedPdfText("");
     setChatMessages([]);
     setChatDraft("");
     setPenEnabled(false);
@@ -523,7 +508,6 @@ export default function Home() {
     const targetPage = Math.min(viewerLecture.pages, Math.max(1, page));
     setSelectedPage(targetPage);
     setNoteDraft(viewerLecture.notes?.[targetPage] ?? "");
-    setSelectedPdfText("");
   }
 
   function openSearchResult(result: SearchResult) {
@@ -862,15 +846,15 @@ export default function Home() {
       .filter((lecture) => selectedExportLectureIds.has(lecture.id) && lecture.slos.length > 0)
       .sort((a, b) => {
         const lecturerOrder = compareText(lecturerFolderLabel(a.lecturer), lecturerFolderLabel(b.lecturer));
-        const dateOrder = lectureDateTimestamp(b.date) - lectureDateTimestamp(a.date);
+        const weekOrder = compareLectureWeeks(a.week, b.week);
         if (sloExportFormat === "excel") {
-          return (sloExportSort === "lecturer" ? lecturerOrder || dateOrder : dateOrder)
+          return (sloExportSort === "lecturer" ? lecturerOrder || weekOrder : weekOrder)
             || compareText(a.title, b.title);
         }
         return compareText(a.academicYear, b.academicYear)
           || compareText(a.course, b.course)
           || (sloExportSort === "lecturer" ? lecturerOrder : 0)
-          || dateOrder
+          || weekOrder
           || compareText(a.title, b.title);
       });
     if (!selected.length) { setNotice("Select at least one lecture with SLOs."); return; }
@@ -931,8 +915,8 @@ export default function Home() {
       const first = slides[0]?.text ?? file.name.replace(/\.pdf$/i, "");
       const title = first.replace(/^\d+\s*/, "").split(/(?:August|September|October|November|December|January|February|March|April|May|June|July)\s+\d+/i)[0].replace(/[“”"]/g, "").trim().slice(0, 100) || file.name.replace(/\.pdf$/i, "");
       const lecture: Lecture = {
-        id: crypto.randomUUID(), title, lecturer: destination.lecturer ?? "Lecturer not detected", date: new Date().toLocaleDateString(), course: destination.course ?? "Unsorted",
-        academicYear: destination.academicYear, favorite: false, pages: pageCount, slos: detectSLOs(slides), concepts: deriveConcepts(slides), outline: [], summary: `Imported ${pageCount} slides. Review the slide index and SLOs below; an AI brief will be added when available.`, slides, notes: {}, markups: {}, markedSlides: [], flaggedSLOs: [], questions: [], fileName: file.name, createdAt: new Date().toISOString(),
+        id: crypto.randomUUID(), title, lecturer: destination.lecturer ?? "Lecturer not detected", week: null, course: destination.course ?? "Unsorted",
+        academicYear: destination.academicYear, favorite: false, pages: pageCount, slos: detectSLOs(slides), outline: [], summary: `Imported ${pageCount} slides. Review the slide index and SLOs below; an AI brief will be added when available.`, slides, notes: {}, markups: {}, markedSlides: [], flaggedSLOs: [], questions: [], fileName: file.name, createdAt: new Date().toISOString(),
       };
       onStage("analyzing");
       recordDiagnostic("upload", "PDF extraction finished; Luna analysis started", { ...diagnosticContext, pageCount, extractedCharacters: slides.reduce((total, slide) => total + slide.text.length, 0) });
@@ -1014,33 +998,6 @@ export default function Home() {
     void runUploadQueue();
   }
 
-  async function addSelectedConcept() {
-    if (!viewerLecture || !selectedPdfText.trim()) return;
-    const text = selectedPdfText.trim();
-    const existing = concepts.find((concept) => !concept.archived && concept.lectureId === viewerLecture.id && concept.page === selectedPage && concept.text.toLowerCase() === text.toLowerCase());
-    if (existing) { setNotice("That concept is already in your concept bank."); return; }
-    const concept: ConceptRecord = { id: crypto.randomUUID(), text, lectureId: viewerLecture.id, page: selectedPage, archived: false, createdAt: new Date().toISOString() };
-    setConcepts((current) => [concept, ...current]);
-    await saveConcept(concept);
-    setSelectedPdfText("");
-    window.getSelection()?.removeAllRanges();
-    setNotice("Added to concept bank.");
-  }
-
-  async function setConceptArchived(concept: ConceptRecord, archived: boolean) {
-    const updated = { ...concept, archived };
-    setConcepts((current) => current.map((item) => item.id === concept.id ? updated : item));
-    await saveConcept(updated);
-    setNotice(archived ? "Concept archived." : "Concept returned to your bank.");
-  }
-
-  function openConceptSource(concept: ConceptRecord) {
-    const lecture = lectures.find((item) => item.id === concept.lectureId);
-    if (!lecture) { setNotice("The source lecture is no longer available in your library."); return; }
-    setActiveId(lecture.id);
-    openLectureBrief(lecture.id, concept.page);
-  }
-
   async function sendChatMessage(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!viewerLecture || chatLoading || !chatDraft.trim()) return;
@@ -1108,7 +1065,7 @@ export default function Home() {
       setLecturerChoice(NEW_LECTURER);
       setNewLecturerDraft(/not detected|unknown|unassigned/i.test(lecture.lecturer) ? "" : lecture.lecturer);
     }
-    setDateDraft(dateInputValue(lecture.date));
+    setWeekDraft(lecture.week === null ? "" : String(lecture.week));
     setEditingMetadataId(lecture.id);
   }
 
@@ -1117,8 +1074,8 @@ export default function Home() {
     if (!course) { setNotice("Course designation cannot be empty."); return; }
     const lecturer = lecturerChoice === NEW_LECTURER ? newLecturerDraft.trim() : lecturerChoice;
     if (!lecturer) { setNotice("Choose a lecturer or add a new one."); return; }
-    if (!dateDraft) { setNotice("Choose the lecture date."); return; }
-    const updated = { ...lecture, course, lecturer, date: displayDateFromInput(dateDraft) };
+    const week = weekDraft ? Number(weekDraft) : null;
+    const updated = { ...lecture, course, lecturer, week };
     setLectures((current) => current.map((item) => item.id === lecture.id ? updated : item));
     await saveLecture(updated);
     if (!allLecturesSelected) {
@@ -1339,9 +1296,8 @@ export default function Home() {
       const result = await migrateLocalLibraryToCloud(setMigrationProgress);
       setLectures(result.library.lectures);
       setPreReads(result.library.preReads);
-      setConcepts(result.library.concepts);
       setCloudHasData(true);
-      setNotice(`Cloud migration complete: ${result.counts.lectures} lectures, ${result.counts.preReads} pre-reads, and ${result.counts.concepts} concepts.`);
+      setNotice(`Cloud migration complete: ${result.counts.lectures} lectures and ${result.counts.preReads} pre-reads.`);
     } catch (error) {
       setNotice(`Migration stopped: ${readableError(error)} Your local library is unchanged.`);
     } finally {
@@ -1363,7 +1319,7 @@ export default function Home() {
   if (cloudConfigured && !cloudSession) {
     return <main className="cloud-gate"><section className="cloud-auth-card">
       <strong className="cloud-wordmark">FCOM.lib</strong>
-      <div className="cloud-auth-heading"><small>PRIVATE CURRICULUM LIBRARY</small><h1>{authMode === "signin" ? "Sign in" : "Create your account"}</h1><p>Your lectures, annotations, SLOs, questions, and concepts stay private to your account.</p></div>
+      <div className="cloud-auth-heading"><small>PRIVATE CURRICULUM LIBRARY</small><h1>{authMode === "signin" ? "Sign in" : "Create your account"}</h1><p>Your lectures, annotations, SLOs, and questions stay private to your account.</p></div>
       <form onSubmit={submitCloudAuth}>
         <label><span>Email</span><input type="email" autoComplete="email" value={authEmail} onChange={(event) => setAuthEmail(event.target.value)} required /></label>
         <label><span>Password</span><input type="password" minLength={6} autoComplete={authMode === "signin" ? "current-password" : "new-password"} value={authPassword} onChange={(event) => setAuthPassword(event.target.value)} required /></label>
@@ -1399,7 +1355,6 @@ export default function Home() {
             <button className={`nav-root ${view === "questions" && allQuestionsSelected ? "active" : ""}`} aria-expanded={questionTreeExpanded} onClick={selectQuestionRoot}><span className={`nav-caret ${questionTreeExpanded ? "expanded" : ""}`}>›</span><span className="nav-indent"/><strong>Question Bank</strong><b>{totalQuestionCount}</b></button>
             {questionTreeExpanded && <CurriculumTree lectures={questionLectures} academicYears={questionAcademicYears} coursesByYear={questionCoursesByYear} expandedYear={expandedQuestionYear} expandedCourse={expandedQuestionCourse} selectedYear={activeQuestionYear} selectedCourse={activeQuestionCourse} selectedLecturer={activeQuestionLecturer} allSelected={allQuestionsSelected} isCurrentSection={view === "questions"} countItems={(items) => items.reduce((total, lecture) => total + lecture.questions.length, 0)} onSelectYear={(year) => { setAllQuestionsSelected(false); setActiveQuestionYear(year); setActiveQuestionCourse("All courses"); setActiveQuestionLecturer(ALL_LECTURERS); setExpandedQuestionYear(year); setView("questions"); }} onSelectCourse={(year, course, courseKey) => { setAllQuestionsSelected(false); setActiveQuestionYear(year); setActiveQuestionCourse(course); setActiveQuestionLecturer(ALL_LECTURERS); setExpandedQuestionCourse((current) => current === courseKey ? null : courseKey); setView("questions"); }} onSelectLecturer={(year, course, lecturer) => { setAllQuestionsSelected(false); setActiveQuestionYear(year); setActiveQuestionCourse(course); setActiveQuestionLecturer(lecturer); setView("questions"); }} />}
           </section>
-          <button className={`nav-link concept-bank-link ${view === "concepts" ? "active" : ""}`} onClick={() => setView("concepts")}><strong>Concept Bank</strong><b>{concepts.filter((concept) => !concept.archived).length}</b></button>
         </nav>
         <div className="side-bottom">{cloudSession ? <div className="cloud-account"><span><strong>Cloud library</strong><small>{cloudSession.user.email}</small>{migrationRunning && migrationProgress && <small>Syncing {migrationProgress.completed} of {migrationProgress.total}</small>}</span><div className="cloud-account-actions"><button type="button" disabled={migrationRunning} onClick={() => void migrateThisDevice()}>{migrationRunning ? "Syncing…" : "Sync this device"}</button><button type="button" onClick={downloadDiagnostics}>Diagnostics</button><button type="button" disabled={migrationRunning} onClick={() => void signOutCloud()}>Sign out</button></div></div> : <p><span><strong>Device library</strong><br/><small>Cloud connection not configured</small><button className="device-diagnostics" type="button" onClick={downloadDiagnostics}>Diagnostics</button></span></p>}</div>
       </aside>
@@ -1415,7 +1370,7 @@ export default function Home() {
         {notice && <div className="notice" role="status" aria-live="polite"><span>{notice}</span><button aria-label="Dismiss" onClick={() => setNotice("")}><AppIcon name="x"/></button></div>}
 
         {cloudSession && !cloudHasData && localReady && <section className="cloud-migration-banner" aria-label="Migrate local library">
-          <div><small>ONE-TIME CLOUD SETUP</small><strong>Move this device’s library into your private account</strong><p>This copies your lectures, PDFs, SLOs, questions, notes, pre-reads, and concepts. The originals remain safely on this computer.</p>{migrationProgress && <span>{migrationProgress.completed} of {migrationProgress.total}: {migrationProgress.label}</span>}</div>
+          <div><small>ONE-TIME CLOUD SETUP</small><strong>Move this device’s library into your private account</strong><p>This copies your lectures, PDFs, SLOs, questions, notes, and pre-reads. The originals remain safely on this computer.</p>{migrationProgress && <span>{migrationProgress.completed} of {migrationProgress.total}: {migrationProgress.label}</span>}</div>
           <button type="button" disabled={migrationRunning} onClick={() => void migrateThisDevice()}>{migrationRunning ? "Migrating…" : "Migrate this device"}</button>
         </section>}
 
@@ -1431,14 +1386,14 @@ export default function Home() {
 
         {(view === "library" || view === "favorites") && <div className={`content-grid ${displayActive ? "" : "single-column"}`}>
           <section className="library-panel">
-            <div className="page-toolbar"><div className="eyebrow">{view === "favorites" ? "SAVED LECTURES" : libraryLocationLabel}</div><label className="sort-control"><span>Sort by</span><select value={lectureSort} onChange={(event) => setLectureSort(event.target.value as "date-desc" | "name-asc")}><option value="date-desc">Date · newest first</option><option value="name-asc">Name · A–Z</option></select></label></div>
+            <div className="page-toolbar"><div className="eyebrow">{view === "favorites" ? "SAVED LECTURES" : libraryLocationLabel}</div><label className="sort-control"><span>Sort by</span><select value={lectureSort} onChange={(event) => setLectureSort(event.target.value as "week-asc" | "name-asc")}><option value="week-asc">Week · earliest first</option><option value="name-asc">Name · A–Z</option></select></label></div>
             {view === "library" && <button className={`dropzone top-dropzone ${dragging ? "dragging" : ""}`} onClick={() => fileInput.current?.click()} onDragOver={(e) => { e.preventDefault(); setDragging(true); }} onDragLeave={() => setDragging(false)} onDrop={(e) => { e.preventDefault(); setDragging(false); if (e.dataTransfer.files.length) enqueueFiles(e.dataTransfer.files); }}>
               <span><AppIcon name="upload"/></span><strong>Drop one or more lectures here</strong><small>PDF · Import to {currentImportDestination.label}</small>
             </button>}
             <div className="lecture-list">
               {visibleLectures.map((lecture) => <article key={lecture.id} className={`lecture-card ${displayActive?.id === lecture.id ? "selected" : ""}`}>
                 <button className="lecture-open" onClick={() => setActiveId(lecture.id)}>
-                  <span className="lecture-copy"><small>{lecture.course.toUpperCase()}</small><strong>{lecture.title}</strong><em>{lecture.lecturer} · {lecture.date}</em></span>
+                  <span className="lecture-copy"><small>{lecture.course.toUpperCase()}</small><strong>{lecture.title}</strong><em>{lecture.lecturer} · {lectureWeekLabel(lecture.week)}</em></span>
                 </button>
                 <div className="lecture-card-rail">
                   <button className="lecture-slo-peek" aria-label={`Preview ${lecture.slos.length} session learning objectives`}><b>{lecture.slos.length} SLO{lecture.slos.length === 1 ? "" : "s"}</b></button><span className="slo-tooltip" role="tooltip"><strong>Session learning objectives</strong>{lecture.slos.length > 0 ? <ol>{lecture.slos.map((slo, index) => <li key={`${index}-${slo}`}>{slo}</li>)}</ol> : <p>No SLOs were extracted for this lecture.</p>}</span>
@@ -1456,9 +1411,9 @@ export default function Home() {
               <label><span>Course designation</span><input value={courseDraft} onChange={(event) => setCourseDraft(event.target.value)} /></label>
               <label><span>Lecturer</span><select value={lecturerChoice} onChange={(event) => setLecturerChoice(event.target.value)}>{lecturerOptions.map((lecturer) => <option value={lecturer} key={lecturer}>{lecturer}</option>)}<option value={NEW_LECTURER}>Add a new lecturer…</option></select></label>
               {lecturerChoice === NEW_LECTURER && <label><span>New lecturer</span><input value={newLecturerDraft} onChange={(event) => setNewLecturerDraft(event.target.value)} placeholder="Name and credentials" /></label>}
-              <label><span>Lecture date</span><input type="date" value={dateDraft} onChange={(event) => setDateDraft(event.target.value)} /></label>
+              <label><span>Curriculum week</span><select value={weekDraft} onChange={(event) => setWeekDraft(event.target.value)}><option value="">Unassigned</option>{LECTURE_WEEK_OPTIONS.map((week) => <option key={week} value={week}>Week {week}</option>)}</select></label>
               <div><button onClick={() => setEditingMetadataId("")}>Cancel</button><button className="save-metadata" onClick={() => saveLectureMetadata(displayActive)}>Save details</button></div>
-            </div> : <div className="lecture-details"><span><small>Course</small>{displayActive.academicYear} / {displayActive.course}</span><span><small>Lecturer</small>{displayActive.lecturer}</span><span><small>Date</small>{displayActive.date}</span><button onClick={() => startMetadataEdit(displayActive)}>Edit details</button><button onClick={() => openQuestionBuilder(displayActive.id)}>Draft questions</button></div>}
+            </div> : <div className="lecture-details"><span><small>Course</small>{displayActive.academicYear} / {displayActive.course}</span><span><small>Lecturer</small>{displayActive.lecturer}</span><span><small>Week</small>{lectureWeekLabel(displayActive.week)}</span><button onClick={() => startMetadataEdit(displayActive)}>Edit details</button><button onClick={() => openQuestionBuilder(displayActive.id)}>Draft questions</button></div>}
             <div className="section-head"><h3>Session learning objectives</h3><button onClick={() => { setAllSLOsSelected(false); setFlaggedSLOsSelected(false); setActiveSloYear(displayActive.academicYear); setActiveSloCourse(displayActive.course); setActiveSloLecturer(ALL_LECTURERS); setExpandedSloYear(displayActive.academicYear); setExpandedSloCourse(`${displayActive.academicYear}::${displayActive.course}`); setSloTreeExpanded(true); setView("slos"); }}>View course SLOs</button></div>
             <ol className="slo-preview">{displayActive.slos.map((slo, index) => <li key={slo}><span>{index + 1}</span><p>{slo}</p></li>)}</ol>
             {displayActive.outline.length > 0 && <><div className="section-head"><h3>Session outline</h3></div><ol className="outline-list">{displayActive.outline.map((section, index) => <li key={section}><span>{index + 1}</span><p>{section}</p></li>)}</ol></>}
@@ -1486,7 +1441,7 @@ export default function Home() {
             <label><span>Academic year</span><select value={searchYear} onChange={(event) => setSearchYear(event.target.value)}><option value="all">All years</option>{searchAcademicYears.map((year) => <option key={year} value={year}>{year}</option>)}</select></label>
             <label><span>Course</span><select value={searchCourse} onChange={(event) => setSearchCourse(event.target.value)}><option value="all">All courses</option>{searchCourseOptions.map((course) => <option key={course} value={course}>{course}</option>)}</select></label>
             <label><span>Lecturer</span><select value={searchLecturer} onChange={(event) => setSearchLecturer(event.target.value)}><option value="all">All lecturers</option>{lecturerOptions.map((lecturer) => <option key={lecturer} value={lecturer}>{lecturer}</option>)}</select></label>
-            <label><span>Sort by</span><select value={searchSort} onChange={(event) => setSearchSort(event.target.value as "relevance" | "date-desc" | "name-asc")}><option value="relevance">Relevance</option><option value="date-desc">Date · newest first</option><option value="name-asc">Name · A–Z</option></select></label>
+            <label><span>Sort by</span><select value={searchSort} onChange={(event) => setSearchSort(event.target.value as "relevance" | "week-asc" | "name-asc")}><option value="relevance">Relevance</option><option value="week-asc">Week · earliest first</option><option value="name-asc">Name · A–Z</option></select></label>
             <button className="clear-search-filters" onClick={() => { setSearchYear("all"); setSearchCourse("all"); setSearchLecturer("all"); setSearchSort("relevance"); }}>Reset filters</button>
           </div>
           {!query && <div className="empty-state"><AppIcon name="search"/><strong>{searchMode === "slides" ? "Search the words inside your sources" : "Search your lectures, SLOs, and pre-reads"}</strong><span>{searchMode === "slides" ? "Try “glycolysis,” “hexokinase,” or another term from class." : "Try a title, instructor, author, course, or SLO phrase."}</span></div>}
@@ -1543,14 +1498,6 @@ export default function Home() {
             })}</div>}
           </article>;
           })}</div> : <div className="home-empty"><strong>No approved questions here yet</strong><span>Select lectures or individual slides and ask Luna to draft the first set.</span><button onClick={() => openQuestionBuilder()}>Draft questions</button></div>}
-        </section>}
-
-        {view === "concepts" && <section className="full-page concept-bank-page">
-          <div className="page-toolbar concept-bank-toolbar"><div className="eyebrow">CONCEPT BANK</div><div className="concept-filter" aria-label="Concept bank view"><button className={conceptFilter === "active" ? "active" : ""} onClick={() => setConceptFilter("active")}>Current</button><button className={conceptFilter === "archived" ? "active" : ""} onClick={() => setConceptFilter("archived")}>Archived</button></div></div>
-          {visibleConcepts.length > 0 ? <div className="concept-bank-list">{visibleConcepts.map((concept) => {
-            const lecture = lectures.find((item) => item.id === concept.lectureId);
-            return <article className="concept-bank-card" key={concept.id}><button className="concept-source" onClick={() => openConceptSource(concept)} disabled={!lecture}><strong>{concept.text}</strong><small>{lecture ? `${lecture.title} · PDF page ${concept.page}` : `Source lecture unavailable · PDF page ${concept.page}`}</small></button><button className="concept-archive" onClick={() => setConceptArchived(concept, conceptFilter === "active")}>{conceptFilter === "active" ? "Archive" : "Restore"}</button></article>;
-          })}</div> : <div className="home-empty"><strong>{conceptFilter === "active" ? "No concepts saved yet" : "No archived concepts"}</strong><span>{conceptFilter === "active" ? "Highlight text in a lecture PDF and add it to your concept bank." : "Archived concepts will remain available here."}</span></div>}
         </section>}
 
         {quizBuilderOpen && <div className="export-backdrop quiz-builder-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setQuizBuilderOpen(false); }}>
@@ -1678,7 +1625,7 @@ export default function Home() {
             <div className="export-selection-toolbar"><span><strong>{selectedExportCount}</strong> of {exportableLectures.length} lectures selected</span><div><button onClick={() => setExportLectureSelection(exportableLectures.map((lecture) => lecture.id), true)}>Select all</button><button onClick={() => setSelectedExportLectureIds(new Set())}>Clear</button></div></div>
             <div className="export-options">
               <label className="export-sort-option"><span>File format</span><select value={sloExportFormat} onChange={(event) => setSloExportFormat(event.target.value as "pdf" | "excel")}><option value="pdf">PDF · printable</option><option value="excel">Excel · editable tracker</option></select></label>
-              <label className="export-sort-option"><span>Order lecture SLOs by</span><select value={sloExportSort} onChange={(event) => setSloExportSort(event.target.value as "date" | "lecturer")}><option value="date">Lecture date · newest first</option><option value="lecturer">Lecturer · A–Z</option></select></label>
+              <label className="export-sort-option"><span>Order lecture SLOs by</span><select value={sloExportSort} onChange={(event) => setSloExportSort(event.target.value as "week" | "lecturer")}><option value="week">Curriculum week · earliest first</option><option value="lecturer">Lecturer · A–Z</option></select></label>
               {sloExportFormat === "pdf" ? <label className="export-progress-option" htmlFor="include-progress-tracker"><input id="include-progress-tracker" type="checkbox" aria-label="Include progress tracker" checked={includeProgressTracker} onChange={(event) => setIncludeProgressTracker(event.target.checked)}/><span><strong>Include progress tracker</strong><small>Add Strong / O.K. / Weak boxes beside every SLO.</small></span></label> : <div className="excel-export-note"><strong>Editable Excel tracker</strong><small>Includes a Progress dropdown and a blank Notes column.</small></div>}
             </div>
             <div className="export-tree">{academicYears.map((year) => {
@@ -1695,11 +1642,11 @@ export default function Home() {
                   const lecturers = Array.from(new Set(courseLectures.map((lecture) => lecture.lecturer))).sort((a, b) => compareText(lecturerFolderLabel(a), lecturerFolderLabel(b)));
                   return <section className="export-course" key={course}><label className="export-folder course"><input type="checkbox" checked={allCourseSelected} onChange={() => setExportLectureSelection(courseIds, !allCourseSelected)}/><strong>{course}</strong><span>{courseLectures.length}</span></label>
                     <div>{lecturers.map((lecturer) => {
-                      const lecturerLectures = courseLectures.filter((lecture) => lecture.lecturer === lecturer).sort((a, b) => lectureDateTimestamp(b.date) - lectureDateTimestamp(a.date));
+                      const lecturerLectures = courseLectures.filter((lecture) => lecture.lecturer === lecturer).sort((a, b) => compareLectureWeeks(a.week, b.week) || compareText(a.title, b.title));
                       const lecturerIds = lecturerLectures.map((lecture) => lecture.id);
                       const allLecturerSelected = lecturerIds.every((id) => selectedExportLectureIds.has(id));
                       return <section className="export-lecturer" key={lecturer}><label className="export-folder lecturer"><input type="checkbox" checked={allLecturerSelected} onChange={() => setExportLectureSelection(lecturerIds, !allLecturerSelected)}/><strong>{lecturerFolderLabel(lecturer)}</strong><span>{lecturerLectures.length}</span></label>
-                        <div>{lecturerLectures.map((lecture) => <label className="export-lecture" key={lecture.id} htmlFor={`export-lecture-${lecture.id}`} aria-label={`Select ${lecture.title}`}><input id={`export-lecture-${lecture.id}`} type="checkbox" checked={selectedExportLectureIds.has(lecture.id)} onChange={(event) => setExportLectureSelection([lecture.id], event.target.checked)}/><span><strong>{lecture.title}</strong><small>{lecture.date} · {lecture.slos.length} SLOs</small></span></label>)}</div>
+                        <div>{lecturerLectures.map((lecture) => <label className="export-lecture" key={lecture.id} htmlFor={`export-lecture-${lecture.id}`} aria-label={`Select ${lecture.title}`}><input id={`export-lecture-${lecture.id}`} type="checkbox" checked={selectedExportLectureIds.has(lecture.id)} onChange={(event) => setExportLectureSelection([lecture.id], event.target.checked)}/><span><strong>{lecture.title}</strong><small>{lectureWeekLabel(lecture.week)} · {lecture.slos.length} SLOs</small></span></label>)}</div>
                       </section>;
                     })}</div>
                   </section>;
@@ -1738,8 +1685,8 @@ export default function Home() {
 
         {viewerLecture && <div className="viewer-modal" role="dialog" aria-modal="true" aria-label="Lecture slide viewer">
           <section className="viewer-stage">
-            <header className="viewer-toolbar"><div><small>{viewerLecture.title}</small><strong>PDF page {selectedPage} of {viewerLecture.pages}</strong></div><div className="viewer-controls"><button disabled={selectedPage <= 1} onClick={() => selectViewerPage(selectedPage - 1)}>Previous</button><label className="page-jump"><span>Page</span><input aria-label="PDF page number" type="number" min="1" max={viewerLecture.pages} value={selectedPage} onChange={(event) => selectViewerPage(Number(event.target.value) || 1)} /></label><button disabled={selectedPage >= viewerLecture.pages} onClick={() => selectViewerPage(selectedPage + 1)}>Next</button><button onClick={() => openQuestionBuilder(viewerLecture.id, selectedPage)}>Draft question</button><button className={`pen-toggle ${penEnabled ? "active" : ""}`} aria-pressed={penEnabled} onClick={() => { setPenEnabled((current) => !current); setSelectedPdfText(""); window.getSelection()?.removeAllRanges(); }}>{penEnabled ? "Pen on" : "Pen"}</button>{viewerPageInk.length > 0 && <button onClick={() => saveCurrentInk(viewerPageInk.slice(0, -1))}>Undo ink</button>}<button className={`mark-slide ${currentSlideIsMarked ? "marked" : ""}`} aria-pressed={currentSlideIsMarked} onClick={toggleCurrentSlideMark}><AppIcon name="bookmark"/>{currentSlideIsMarked ? "Marked" : "Mark slide"}</button></div></header>
-            {viewerFile && viewerFileLectureId === viewerLecture.id ? <PdfCanvasViewer key={viewerLecture.id} file={viewerFile} lectureId={viewerLecture.id} page={selectedPage} selectedText={selectedPdfText} bankedConceptTexts={viewerPageConceptTexts} inkStrokes={viewerPageInk} penEnabled={penEnabled} onSelectionChange={setSelectedPdfText} onAddConcept={addSelectedConcept} onInkChange={saveCurrentInk} /> : <div className="slide-fallback"><span className="result-page">{selectedSlide.page}</span><h2>{selectedSlide.heading}</h2><p>{selectedSlide.text || "Loading the selected lecture…"}</p><small>Uploaded PDFs are stored locally and displayed page-for-page here.</small></div>}
+            <header className="viewer-toolbar"><div><small>{viewerLecture.title}</small><strong>PDF page {selectedPage} of {viewerLecture.pages}</strong></div><div className="viewer-controls"><button disabled={selectedPage <= 1} onClick={() => selectViewerPage(selectedPage - 1)}>Previous</button><label className="page-jump"><span>Page</span><input aria-label="PDF page number" type="number" min="1" max={viewerLecture.pages} value={selectedPage} onChange={(event) => selectViewerPage(Number(event.target.value) || 1)} /></label><button disabled={selectedPage >= viewerLecture.pages} onClick={() => selectViewerPage(selectedPage + 1)}>Next</button><button onClick={() => openQuestionBuilder(viewerLecture.id, selectedPage)}>Draft question</button><button className={`pen-toggle ${penEnabled ? "active" : ""}`} aria-pressed={penEnabled} onClick={() => { setPenEnabled((current) => !current); window.getSelection()?.removeAllRanges(); }}>{penEnabled ? "Pen on" : "Pen"}</button>{viewerPageInk.length > 0 && <button onClick={() => saveCurrentInk(viewerPageInk.slice(0, -1))}>Undo ink</button>}<button className={`mark-slide ${currentSlideIsMarked ? "marked" : ""}`} aria-pressed={currentSlideIsMarked} onClick={toggleCurrentSlideMark}><AppIcon name="bookmark"/>{currentSlideIsMarked ? "Marked" : "Mark slide"}</button></div></header>
+            {viewerFile && viewerFileLectureId === viewerLecture.id ? <PdfCanvasViewer key={viewerLecture.id} file={viewerFile} lectureId={viewerLecture.id} page={selectedPage} inkStrokes={viewerPageInk} penEnabled={penEnabled} onInkChange={saveCurrentInk} /> : <div className="slide-fallback"><span className="result-page">{selectedSlide.page}</span><h2>{selectedSlide.heading}</h2><p>{selectedSlide.text || "Loading the selected lecture…"}</p><small>Uploaded PDFs are stored locally and displayed page-for-page here.</small></div>}
           </section>
           <aside className="ai-panel"><div className="ai-panel-head"><h2>Ask about this slide</h2><button className="ai-close" aria-label="Close lecture viewer" onClick={() => setViewerLectureId("")}><AppIcon name="x"/></button></div>
             {chatMessages.length > 0 || chatLoading ? <div className="luna-chat" aria-live="polite">{chatMessages.map((message) => <article className={`chat-message ${message.role}`} key={message.id}><small>{message.role === "assistant" ? "Luna" : `You · page ${message.page}`}</small><p>{message.text}</p></article>)}{chatLoading && <article className="chat-message assistant pending"><small>Luna</small><p>Thinking…</p></article>}</div> : null}

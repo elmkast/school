@@ -1,5 +1,5 @@
 import type { Lecture, PreRead } from "./lecture-store";
-import { lectureDateTimestamp } from "./curriculum";
+import { lectureWeekValue } from "./curriculum";
 
 export type SearchKind = "lecture" | "slo" | "slide" | "preread";
 
@@ -39,11 +39,10 @@ export function searchMatchScore(needle: string, title: string, body: string) {
   return score;
 }
 
-export function searchResultTimestamp(result: SearchResult) {
-  return result.kind === "preread" ? Date.parse(result.preRead.createdAt) || 0 : lectureDateTimestamp(result.lecture.date);
+export function searchResultWeek(result: SearchResult) {
+  return result.kind === "preread" ? Number.POSITIVE_INFINITY : lectureWeekValue(result.lecture.week) ?? Number.POSITIVE_INFINITY;
 }
 
 export function searchResultCollectionTitle(result: SearchResult) {
   return result.kind === "preread" ? result.preRead.title : result.lecture.title;
 }
-

@@ -6,7 +6,7 @@ See the [product feature and development specification](docs/MEDLIBRARY_PRODUCT_
 
 ## Included
 
-- Home, Lectures, search, SLO, and Concept Bank views
+- Home, Lectures, search, SLO, pre-read, and Question Bank views
 - Two representative genetics lecture records
 - Browser-based PDF text extraction (no visual analysis)
 - Supabase email/password accounts, private cloud records, and private PDF storage
@@ -15,7 +15,7 @@ See the [product feature and development specification](docs/MEDLIBRARY_PRODUCT_
 - In-session Luna chat grounded in the current slide and nearby lecture context
 - Local PDF viewer and per-slide notes
 - Persistent freehand pen markup on individual PDF pages with per-stroke undo
-- Selectable PDF text with a persistent, page-linked concept bank, source-page highlights, and archive
+- Selectable PDF text for copying lecture content
 - Academic-year folders, favorites, and removable lecture records
 - A controlled page-by-page PDF reader so AI explanations match the visible page
 - Editable course designations and direct lecture access from the SLO dashboard
@@ -24,11 +24,11 @@ See the [product feature and development specification](docs/MEDLIBRARY_PRODUCT_
 - Flagged lecture SLOs displayed inside the study companion below slide notes
 - Matching collapsible academic-year/course trees for Lectures and SLO filtering
 - Lecturer subfolders within every course, mirrored in Lectures and SLOs
-- Persistent course, lecturer, and lecture-date editing
-- Lecture sorting by date or name, with newest lecture date as the default
+- Persistent course, lecturer, and manually assigned curriculum-week editing
+- Lecture sorting by curriculum week or name, with Week 1 through Week 52 available and unassigned lectures placed last
 - Persistent per-SLO flags with a dedicated Flagged SLOs view
-- Plain black-and-white SLO PDF export with year, course, lecturer, and lecture selection, date/lecturer ordering, last-name-only lecturer labels, and an optional Strong / O.K. / Weak progress tracker
-- Editable SLO Excel export with last-name-only lecturer labels, lecture date, lecture title, SLO text, a Strong / O.K. / Weak dropdown, and notes
+- Plain black-and-white SLO PDF export with year, course, lecturer, and lecture selection, week/lecturer ordering, last-name-only lecturer labels, and an optional Strong / O.K. / Weak progress tracker
+- Editable SLO Excel export with last-name-only lecturer labels, curriculum week, lecture title, SLO text, a Strong / O.K. / Weak dropdown, and notes
 - Keep-together SLO pagination with repeated headings for unusually long lectures
 - Clickable SLO folder breadcrumbs and larger objective text
 - Grouped curriculum search across lectures, SLOs, slides, and pre-reads with modern filters and sorting
@@ -49,11 +49,11 @@ Supabase's publishable key is intentionally available to the browser; row-level 
 ## Configure Supabase once
 
 1. Open **Supabase Dashboard → SQL Editor → New query**.
-2. Copy and run [`supabase/migrations/202608120001_fcom_library.sql`](supabase/migrations/202608120001_fcom_library.sql). This creates the three private tables, the private `fcom-library` Storage bucket, and per-user access policies.
+2. Copy and run [`supabase/migrations/202608120001_fcom_library.sql`](supabase/migrations/202608120001_fcom_library.sql). This creates the private data tables, the private `fcom-library` Storage bucket, and per-user access policies.
 3. In **Authentication → URL Configuration**, set the Site URL to the Netlify production URL.
 4. In **Authentication → Providers → Email**, keep Email enabled. Choose whether email confirmation is required; confirmation is recommended before inviting additional users.
 
-On the first signed-in launch, FCOM.lib detects an empty cloud account and offers **Migrate this device**. Migration copies all local lecture records, PDFs, notes, markups, SLO flags, pre-reads, and concepts. It does not remove the local copies.
+On the first signed-in launch, FCOM.lib detects an empty cloud account and offers **Migrate this device**. Migration copies all local lecture records, PDFs, notes, markups, SLO flags, and pre-reads. It does not remove the local copies.
 
 Browser data belongs to the exact origin that created it. To migrate an existing local library, start FCOM.lib at the same address originally used (for this project, `http://127.0.0.1:5173`), sign into the cloud account there, and choose **Sync this device** in the lower-left account area. Opening the Netlify site cannot directly read IndexedDB owned by `127.0.0.1`.
 

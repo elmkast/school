@@ -121,10 +121,9 @@ SLOs
     ├── GI
     └── Renal
 
-Concept Bank
 ```
 
-Lectures, SLOs, and Question Bank use the same academic-year/course/lecturer taxonomy. Their filters remain independent so a user can inspect one lecture folder without losing a different study-data filter. Their section headers serve as complete-collection views, avoiding redundant "All" child nodes. Question Bank stores approved questions beneath their source lectures, while Concept Bank remains intentionally flat: each saved phrase retains a hidden lecture/page reference without imposing curriculum folders on the review list.
+Lectures, SLOs, and Question Bank use the same academic-year/course/lecturer taxonomy. Their filters remain independent so a user can inspect one lecture folder without losing a different study-data filter. Their section headers serve as complete-collection views, avoiding redundant "All" child nodes. Question Bank stores approved questions beneath their source lectures.
 
 Pre-reads are a separate content type because they do not have lecture SLOs or lecturers. They retain academic-year and course metadata, source attribution, reading status, searchable source text, and an optional original link or locally stored PDF.
 
@@ -148,11 +147,11 @@ Status definitions:
 | Lecturer subfolders | Implemented | Each course expands into lecturer-specific filters using the lecturers already in the library | Lecturer merge and canonical-name controls |
 | Lectures root view | Implemented | The Lectures section header opens the complete collection across all years and courses while also controlling its collapsible folder tree | Server-side pagination for large libraries |
 | Collapsible Lectures tree | Implemented | Lectures expands directly into years, courses, and lecturers without a redundant All Lectures node | Persist expansion preference per device |
-| Lecture sorting | Implemented | Sorts by lecture date, newest first, or lecture name A–Z | Persist sort preference per user |
+| Lecture sorting | Implemented | Sorts by manually assigned curriculum week, earliest first with unassigned lectures last, or lecture name A–Z | Persist sort preference per user |
 | Favorites | Implemented | Mark/unmark lectures and open a favorites-only list | Sync favorites across devices |
 | Lecture deletion | Implemented | Removes lecture metadata and local PDF after confirmation | Soft delete, recovery window, and storage cleanup job |
-| Editable lecture details | Implemented | Manually correct course, select an existing lecturer or add a new lecturer, and update lecture date | Add title and academic-year editing plus canonical lecturer management |
-| Lecture detail panel | Implemented | Shows summary, editable course/lecturer/date metadata, every SLO, and a consistently formatted session outline without redundant count boxes | Full metadata editor and re-analysis controls |
+| Editable lecture details | Implemented | Manually correct course, select an existing lecturer or add a new lecturer, and assign Week 1 through Week 52 or leave the lecture unassigned; Luna does not infer the week | Add title and academic-year editing plus canonical lecturer management |
+| Lecture detail panel | Implemented | Shows summary, editable course/lecturer/week metadata, every SLO, and a consistently formatted session outline without redundant count boxes | Full metadata editor and re-analysis controls |
 | Lecture card study actions | Implemented | Keeps the primary brief action in a dedicated right-hand control and previews the full SLO list when the SLO badge is hovered or keyboard-focused | Add mobile tap behavior and usage testing |
 
 ### 6.2 Import and processing
@@ -180,8 +179,8 @@ Status definitions:
 | Clickable SLO breadcrumbs | Implemented | Year, course, and lecturer labels provide a second path through the active SLO hierarchy | Persist breadcrumb scope in URL |
 | Open lecture from SLOs | Implemented | Opens the corresponding lecture brief | Open the specific source slide for an SLO |
 | Flagged SLOs | Implemented | Flag/unflag individual objectives, persist flags locally, and review them in a dedicated sidebar view | Sync flags across devices and add flagged-only study mode |
-| SLO PDF export | Implemented | Select multiple lectures individually or by academic year, course, or lecturer; order lecture/SLO blocks by newest date or lecturer; show only the lecturer's last name in compact PDF metadata; optionally add fixed Strong / O.K. / Weak assessment boxes beside every objective; and download a plain black-and-white PDF. Each lecture is kept on one page whenever possible, while oversized lectures break only between objectives and repeat their heading | Server-generated exports for very large selections and optional source-page references |
-| SLO Excel export | Implemented | Reuses the same lecture selection and date/lecturer ordering controls to download one editable tracker row per SLO with the lecturer's last name, Lecture Date, Lecture Title, SLO Text, a validated Strong / O.K. / Weak Progress field, and Notes | Add optional cloud re-import if workbook progress should later synchronize back into FCOM.lib |
+| SLO PDF export | Implemented | Select multiple lectures individually or by academic year, course, or lecturer; order lecture/SLO blocks by curriculum week or lecturer; show only the lecturer's last name and assigned week in compact PDF metadata; optionally add fixed Strong / O.K. / Weak assessment boxes beside every objective; and download a plain black-and-white PDF. Each lecture is kept on one page whenever possible, while oversized lectures break only between objectives and repeat their heading | Server-generated exports for very large selections and optional source-page references |
+| SLO Excel export | Implemented | Reuses the same lecture selection and week/lecturer ordering controls to download one editable tracker row per SLO with the lecturer's last name, Week, Lecture Title, SLO Text, a validated Strong / O.K. / Weak Progress field, and Notes | Add optional cloud re-import if workbook progress should later synchronize back into FCOM.lib |
 | Luna SLO re-parse | Implemented | Re-read extracted objective-slide text with an optional user instruction, review/edit Luna’s proposed list, and explicitly approve replacement | Add source-page citations, correction history, and selective visual fallback |
 | Manual SLO correction | Planned | — | Add, edit, delete, reorder, and confirm extracted SLOs |
 | SLO coverage map | Candidate | — | Show which slides and concepts support each objective |
@@ -211,11 +210,8 @@ Status definitions:
 | Freehand PDF markup | Implemented | A Pen mode draws persistent red freehand strokes on the current PDF page; Undo ink removes the most recent stroke | Add colors, stroke widths, eraser, stylus pressure, and cloud sync |
 | Marked slides | Implemented | Mark/unmark slides and jump back from a persistent list | Cross-device sync and optional marked-slide review mode |
 | Selectable PDF text | Implemented | Adds a PDF.js text layer so words and phrases can be highlighted directly on the rendered page | Preserve selection accuracy across rotations, OCR, and unusual embedded fonts |
-| Concept bank | Implemented | Saves highlighted text with its lecture and PDF page, keeps the capture action in a stable row beneath the PDF, visually highlights banked concepts when their source page is open, displays a flat current list, and opens the source page when selected | Cloud sync, deduplication controls, OCR-aware highlights, and optional concept notes |
-| Concept archive | Implemented | Archive removes a concept from the current list while preserving it in an Archived view; archived concepts can be restored | Bulk archive and retention controls |
 | Luna slide chat | Implemented | Answers the student's question directly from medical knowledge, using the current and nearby slides silently as optional context rather than automatically framing every answer around the slide; messages are intentionally not persisted | Streaming output, optional source citations on request, retry, and feedback controls |
 | Flagged SLOs in reader | Implemented | Displays the current lecture's flagged objectives below per-slide notes | Link objectives to exact supporting slides |
-| Concept expansion | Planned | — | Click a term to request definition, mechanism, or clinical significance |
 | Go deeper on slide | Planned | — | Choose explanation depth and focus without leaving the reader |
 | Slide-linked flashcards | Candidate | — | Generate editable cards with source-page citations |
 | Study session mode | Candidate | — | Review marked slides, notes, and SLOs as a queue |
@@ -254,8 +250,8 @@ The next Question Bank release should treat a question's source as explicit stru
 | Exact keyword search | Implemented | Searches lecture metadata, summaries, SLOs, extracted slide text, pre-read metadata, and saved pre-read source text | Indexed server-side search for large libraries |
 | Explicit search sources | Implemented | Separates Lectures & SLO metadata search from exact Source text search across slides and pre-reads | Persist the selected search source per user |
 | Grouped search results | Implemented | Separates matching lectures, SLOs, slides, and pre-reads into scannable result groups | Virtualize or paginate large result sets |
-| Search filters | Implemented | Filters by academic year and course across supported sources; lecturer applies to lecture/SLO/slide results | Add source-type, status, marked, flagged, date-range, and multi-select filters |
-| Search sorting | Implemented | Sorts by relevance, newest source date, or source name | Tune relevance with usage data and source-confidence signals |
+| Search filters | Implemented | Filters by academic year and course across supported sources; lecturer applies to lecture/SLO/slide results | Add source-type, status, marked, flagged, curriculum-week, and multi-select filters |
+| Search sorting | Implemented | Sorts by relevance, curriculum week, or source name | Tune relevance with usage data and source-confidence signals |
 | Search result page references | Implemented | Opens the exact lecture slide or pre-read PDF page when available | Highlight matched text on the source/side panel |
 | Semantic search | Planned | — | Retrieve conceptually related slides across all lectures |
 | Grounded curriculum Q&A | Planned | — | Answer only from selected curriculum scope with page-level citations |
@@ -347,7 +343,7 @@ Netlify is the only supported server runtime. The former standalone local AI ser
 
 ```text
 Web client
-├── Home, Lectures, SLO, Concept Bank, search, and reader interface
+├── Home, Lectures, SLO, Question Bank, search, and reader interface
 ├── Local cache for responsiveness
 └── Direct private upload using signed URLs
 
@@ -536,14 +532,6 @@ This mapping is now the working private-beta architecture. Future work should ha
 4. Open a source lecture directly.
 5. In a future release, open the exact source slide for each objective.
 
-### Flow D: Retrieve an older concept
-
-1. Highlight a word or phrase in the lecture PDF and add it to the Concept Bank.
-2. Open Concept Bank to see the flat saved list.
-3. Select a concept to reopen its lecture at the exact PDF page.
-4. Archive concepts that no longer need active review, or restore them from Archived.
-5. Use Search separately to retrieve matching slides and pre-read passages across the curriculum.
-
 ### Flow E: Manage assigned pre-reads
 
 1. Add an assigned PDF, or save a web article with its title, source link, and pasted text.
@@ -614,7 +602,7 @@ This mapping is now the working private-beta architecture. Future work should ha
 - PDF reader
 - In-session Luna slide chat
 - Favorites, deletion, notes, and marked slides
-- Selectable PDF text, page-linked concept bank, and concept archive
+- Selectable PDF text
 - Flagged lecture SLOs inside the reader
 - Persistent SLO flags and SLO PDF export
 - Luna-assisted SLO re-parsing with optional correction instructions and approval
@@ -644,7 +632,7 @@ This mapping is now the working private-beta architecture. Future work should ha
 ### Phase 2 — Grounded curriculum intelligence
 
 - Semantic slide indexing
-- Advanced multi-select, marked, flagged, and date-range search filters
+- Advanced multi-select, marked, flagged, and curriculum-week search filters
 - Page-level citations
 - Grounded curriculum Q&A
 - Clickable concept explanations
@@ -740,11 +728,10 @@ Initial measures should focus on usefulness and reliability rather than growth:
 1. Finalize the cloud provider decision and target monthly budget.
 2. Define the production database and storage policies.
 3. Build a thin authenticated upload/read proof of concept with one lecture.
-4. Extend the current course/lecturer/date editor with title, academic year, and complete SLO correction.
+4. Extend the current course/lecturer/week editor with title, academic year, and complete SLO correction.
 5. Move import processing to durable background jobs.
 6. Add file-hash duplicate detection.
 7. Design local-to-cloud migration for the existing IndexedDB library.
 8. Create a representative PDF evaluation set and AI accuracy rubric.
 9. Implement page-addressable semantic search with citations.
 10. Add usage and cost instrumentation before expanding interactive AI features.
-

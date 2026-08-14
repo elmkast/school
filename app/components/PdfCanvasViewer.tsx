@@ -14,53 +14,6 @@ type PdfDocument = {
 
 type PdfTextLayer = { render(): Promise<unknown>; cancel(): void };
 
-function conceptHighlightRanges(layer: HTMLElement, phrases: string[]) {
-  const walker = window.document.createTreeWalker(layer, NodeFilter.SHOW_TEXT);
-  const starts: Array<{ node: Node; offset: number }> = [];
-  const ends: Array<{ node: Node; offset: number }> = [];
-  let normalized = "";
-  let node = walker.nextNode();
-  while (node) {
-    const value = node.textContent ?? "";
-    for (let offset = 0; offset < value.length; offset += 1) {
-      const character = value[offset];
-      if (/\s/.test(character)) {
-        if (normalized.endsWith(" ")) ends[ends.length - 1] = { node, offset: offset + 1 };
-        else {
-          normalized += " ";
-          starts.push({ node, offset });
-          ends.push({ node, offset: offset + 1 });
-        }
-      } else {
-        normalized += character;
-        starts.push({ node, offset });
-        ends.push({ node, offset: offset + 1 });
-      }
-    }
-    node = walker.nextNode();
-  }
-
-  const ranges: Range[] = [];
-  const searchable = normalized.toLocaleLowerCase();
-  for (const phrase of phrases) {
-    const needle = phrase.replace(/\s+/g, " ").trim().toLocaleLowerCase();
-    if (!needle) continue;
-    let match = searchable.indexOf(needle);
-    while (match >= 0) {
-      const start = starts[match];
-      const end = ends[match + needle.length - 1];
-      if (start && end) {
-        const range = window.document.createRange();
-        range.setStart(start.node, start.offset);
-        range.setEnd(end.node, end.offset);
-        ranges.push(range);
-      }
-      match = searchable.indexOf(needle, match + needle.length);
-    }
-  }
-  return ranges;
-}
-
 function drawInkStrokes(canvas: HTMLCanvasElement, strokes: InkStroke[]) {
   const context = canvas.getContext("2d");
   if (!context) return;
@@ -98,7 +51,7 @@ function loadPdfDocument(lectureId: string, file: Blob) {
   return promise;
 }
 
-export function PdfCanvasViewer({ file, lectureId, page, selectedText, bankedConceptTexts, inkStrokes, penEnabled, onSelectionChange, onAddConcept, onInkChange }: { file: Blob; lectureId: string; page: number; selectedText: string; bankedConceptTexts: string[]; inkStrokes: InkStroke[]; penEnabled: boolean; onSelectionChange(text: string): void; onAddConcept(): void; onInkChange(strokes: InkStroke[]): void }) {
+export function PdfCanvasViewer({ file, lectureId, page, inkStrokes, penEnabled, onInkChange }: { file: Blob; lectureId: string; page: number; inkStrokes: InkStroke[]; penEnabled: boolean; onInkChange(strokes: InkStroke[]): void }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const inkCanvasRef = useRef<HTMLCanvasElement>(null);
   const textLayerRef = useRef<HTMLDivElement>(null);
@@ -108,13 +61,6 @@ export function PdfCanvasViewer({ file, lectureId, page, selectedText, bankedCon
   const [width, setWidth] = useState(800);
   const [status, setStatus] = useState("Loading PDF…");
   const [textLayerVersion, setTextLayerVersion] = useState(0);
-
-  useEffect(() => {
-    const style = window.document.createElement("style");
-    style.textContent = "::highlight(fcom-lib-banked-concepts){background:rgba(229,197,92,.45);color:transparent}";
-    window.document.head.append(style);
-    return () => style.remove();
-  }, []);
 
   useEffect(() => {
     const element = containerRef.current;
@@ -185,31 +131,6 @@ export function PdfCanvasViewer({ file, lectureId, page, selectedText, bankedCon
   }, [document, page, width]);
 
   useEffect(() => {
-    function captureSelection() {
-      const selection = window.getSelection();
-      const layer = textLayerRef.current;
-      if (!selection || selection.isCollapsed || !layer || !selection.rangeCount || !layer.contains(selection.getRangeAt(0).commonAncestorContainer)) {
-        onSelectionChange("");
-        return;
-      }
-      onSelectionChange(selection.toString().replace(/\s+/g, " ").trim().slice(0, 500));
-    }
-    window.document.addEventListener("selectionchange", captureSelection);
-    return () => window.document.removeEventListener("selectionchange", captureSelection);
-  }, [onSelectionChange, page]);
-
-  useEffect(() => {
-    const layer = textLayerRef.current;
-    const registry = CSS.highlights;
-    if (!layer || !registry) return;
-    const highlightName = "fcom-lib-banked-concepts";
-    const ranges = conceptHighlightRanges(layer, bankedConceptTexts);
-    if (ranges.length > 0) registry.set(highlightName, new Highlight(...ranges));
-    else registry.delete(highlightName);
-    return () => { registry.delete(highlightName); };
-  }, [bankedConceptTexts, page, textLayerVersion]);
-
-  useEffect(() => {
     if (inkCanvasRef.current) drawInkStrokes(inkCanvasRef.current, inkStrokes);
   }, [inkStrokes, textLayerVersion]);
 
@@ -241,10 +162,7 @@ export function PdfCanvasViewer({ file, lectureId, page, selectedText, bankedCon
 
   return <div className="pdf-canvas-wrap" ref={containerRef}>
     {status && <span className="pdf-status">{status}</span>}
-    <div className="pdf-canvas-content"><div className={`pdf-page-stack ${penEnabled ? "pen-active" : ""}`}><canvas ref={canvasRef} aria-label={`PDF page ${page}`} /><div ref={textLayerRef} className="pdf-text-layer textLayer" aria-label={`Selectable text for PDF page ${page}`} /><canvas ref={inkCanvasRef} className={`pdf-ink-layer ${penEnabled ? "drawing" : ""}`} aria-label={`Pen markup for PDF page ${page}`} onPointerDown={startInk} onPointerMove={continueInk} onPointerUp={finishInk} onPointerCancel={finishInk} /></div>
-      <div className="concept-capture-slot">{selectedText && <button className="concept-capture" onMouseDown={(event) => event.preventDefault()} onClick={onAddConcept}><span>Add to concept bank</span><small>{selectedText}</small></button>}</div>
-    </div>
+    <div className="pdf-canvas-content"><div className={`pdf-page-stack ${penEnabled ? "pen-active" : ""}`}><canvas ref={canvasRef} aria-label={`PDF page ${page}`} /><div ref={textLayerRef} className="pdf-text-layer textLayer" aria-label={`Selectable text for PDF page ${page}`} /><canvas ref={inkCanvasRef} className={`pdf-ink-layer ${penEnabled ? "drawing" : ""}`} aria-label={`Pen markup for PDF page ${page}`} onPointerDown={startInk} onPointerMove={continueInk} onPointerUp={finishInk} onPointerCancel={finishInk} /></div></div>
   </div>;
 }
-
 

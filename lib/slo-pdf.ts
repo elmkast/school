@@ -68,7 +68,7 @@ function lecturerLastName(value: string) {
 }
 
 function lectureMetadata(lecture: Lecture) {
-  return `${lecturerLastName(lecture.lecturer)} | ${lecture.date}`;
+  return `${lecturerLastName(lecture.lecturer)} | ${lecture.week === null ? "Week unassigned" : `Week ${lecture.week}`}`;
 }
 
 function objectiveTextWidth(includeProgressTracker: boolean) {

@@ -91,24 +91,17 @@ function lecturerLastName(value: string) {
   return name.split(/\s+/).filter(Boolean).at(-1) || "Unknown";
 }
 
-function excelDateSerial(value: string) {
-  const date = new Date(value);
-  if (!Number.isFinite(date.getTime())) return null;
-  return Math.floor(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()) / 86_400_000) + 25569;
-}
-
 function workbookFiles(lectures: Lecture[]): ZipEntry[] {
   const rows = lectures.flatMap((lecture) => lecture.slos.map((slo) => ({ lecture, slo })));
   const lastRow = Math.max(1, rows.length + 1);
-  const header = ["Lecturer", "Lecture Date", "Lecture Title", "SLO Text", "Progress", "Notes"]
+  const header = ["Lecturer", "Week", "Lecture Title", "SLO Text", "Progress", "Notes"]
     .map((value, index) => textCell(`${String.fromCharCode(65 + index)}1`, value, 1))
     .join("");
   const body = rows.map(({ lecture, slo }, index) => {
     const row = index + 2;
-    const date = excelDateSerial(lecture.date);
-    const dateCell = date === null ? textCell(`B${row}`, lecture.date, 2) : `<c r="B${row}" s="3"><v>${date}</v></c>`;
+    const weekCell = textCell(`B${row}`, lecture.week === null ? "Unassigned" : `Week ${lecture.week}`, 2);
     const rowHeight = Math.min(72, Math.max(22, 16 + Math.ceil(slo.length / 92) * 14));
-    return `<row r="${row}" ht="${rowHeight}" customHeight="1">${textCell(`A${row}`, lecturerLastName(lecture.lecturer), 2)}${dateCell}${textCell(`C${row}`, lecture.title, 2)}${textCell(`D${row}`, slo, 2)}${emptyCell(`E${row}`, 4)}${emptyCell(`F${row}`, 4)}</row>`;
+    return `<row r="${row}" ht="${rowHeight}" customHeight="1">${textCell(`A${row}`, lecturerLastName(lecture.lecturer), 2)}${weekCell}${textCell(`C${row}`, lecture.title, 2)}${textCell(`D${row}`, slo, 2)}${emptyCell(`E${row}`, 4)}${emptyCell(`F${row}`, 4)}</row>`;
   }).join("");
   const validations = rows.length
     ? `<dataValidations count="1"><dataValidation type="list" allowBlank="1" showErrorMessage="1" errorTitle="Choose a progress level" error="Use Strong, O.K., or Weak." sqref="E2:E${lastRow}"><formula1>&quot;Strong,O.K.,Weak&quot;</formula1></dataValidation></dataValidations>`

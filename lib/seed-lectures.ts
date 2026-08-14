@@ -5,7 +5,7 @@ export const seedLectures: Lecture[] = [
     id: "dna-tech",
     title: "DNA Technology and its Applications",
     lecturer: "Katherine Mitsouras, PhD",
-    date: "August 10, 2026",
+    week: 2,
     course: "Medical & Clinical Foundations",
     academicYear: "2026-2027",
     favorite: false,
@@ -20,7 +20,6 @@ export const seedLectures: Lecture[] = [
       "Describe drawbacks of gene-therapy approaches.",
       "Explain genome editing and CRISPR/Cas treatment of monogenic disease.",
     ],
-    concepts: ["Linkage analysis", "WES / WGS", "GWAS", "PCR", "Southern blot", "Sanger sequencing", "Gene therapy", "CRISPR/Cas"],
     outline: ["Identifying the genetic basis of disease", "Diagnostic testing and screening", "Gene expression methods", "DNA methods for treatment", "Genome editing with CRISPR/Cas"],
     summary: "Methods for identifying disease genes, diagnosing monogenic disorders, measuring gene expression, and treating genetic disease through gene therapy and genome editing.",
     notes: {},
@@ -40,7 +39,7 @@ export const seedLectures: Lecture[] = [
     id: "intro-cytogenetics",
     title: "Introduction to Cytogenetics",
     lecturer: "Katherine Mitsouras, PhD",
-    date: "August 3, 2026",
+    week: 1,
     course: "Medical & Clinical Foundations",
     academicYear: "2026-2027",
     favorite: false,
@@ -54,7 +53,6 @@ export const seedLectures: Lecture[] = [
       "Describe the three viable autosomal trisomies and prenatal measurement of nuchal translucency.",
       "Select an appropriate laboratory method for a cytogenetic abnormality.",
     ],
-    concepts: ["ISCN nomenclature", "Karyotype", "FISH", "Array CGH", "Aneuploidy", "Mosaicism", "Translocations", "Deletions", "Inversions"],
     outline: ["Chromosome morphology and ISCN nomenclature", "Methods for chromosome analysis", "Numerical chromosome abnormalities", "Structural chromosome abnormalities", "Clinical syndromes and laboratory selection"],
     summary: "Chromosome morphology and nomenclature, cytogenetic testing methods, numerical abnormalities, structural rearrangements, and associated clinical syndromes.",
     notes: {},
@@ -71,5 +69,3 @@ export const seedLectures: Lecture[] = [
     createdAt: "2026-08-03T08:00:00.000Z",
   },
 ];
-
-

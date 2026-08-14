@@ -413,24 +413,7 @@ button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-vis
   .home-flagged-card>header { flex-direction:column; }
 }
 
-/* Concept bank and selectable PDF text */
-.concept-bank-link { margin-top:2px; }
-.concept-bank-page { max-width:980px; }
-.concept-bank-toolbar { display:flex; align-items:center; justify-content:space-between; gap:18px; }
-.concept-bank-toolbar .eyebrow { margin:0; font-size:13px; letter-spacing:1.2px; }
-.concept-filter { display:flex; border:1px solid #cfd3d6; border-radius:var(--radius-sm); overflow:hidden; background:#fff; }
-.concept-filter button { border:0; border-right:1px solid #cfd3d6; background:#fff; padding:8px 12px; color:#666d74; cursor:pointer; font-size:11px; }
-.concept-filter button:last-child { border-right:0; }
-.concept-filter button.active { background:#2d3338; color:#fff; }
-.concept-bank-list { margin-top:24px; display:grid; gap:8px; }
-.concept-bank-card { border:1px solid #d5d8da; border-radius:var(--radius-sm); background:#fff; display:flex; align-items:stretch; }
-.concept-source { min-width:0; flex:1; border:0; background:transparent; padding:15px 17px; text-align:left; cursor:pointer; }
-.concept-source:hover { background:#f5f6f7; }
-.concept-source:disabled { cursor:default; opacity:.6; }
-.concept-source strong { display:block; color:#252a2f; font-size:15px; font-weight:630; line-height:1.4; }
-.concept-source small { display:block; margin-top:6px; color:#737980; font-size:10px; }
-.concept-archive { align-self:center; margin:10px 12px; border:1px solid #cbd0d4; border-radius:var(--radius-sm); background:#fff; padding:7px 10px; color:#596168; cursor:pointer; font-size:10px; }
-.concept-archive:hover { border-color:#9fa5aa; color:#252a2f; }
+/* Selectable PDF text */
 .pdf-canvas-content { max-width:100%; flex:none; display:flex; flex-direction:column; align-items:stretch; }
 .pdf-page-stack { position:relative; flex:none; line-height:1; box-shadow:0 6px 24px #152c2224; }
 .pdf-canvas-wrap .pdf-page-stack canvas { box-shadow:none; }
@@ -440,10 +423,6 @@ button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-vis
 .pdf-text-layer > :not(.markedContent),.pdf-text-layer .markedContent span:not(.markedContent) { z-index:1; --font-height:0; font-size:calc(var(--text-scale-factor) * var(--font-height)); --scale-x:1; --rotate:0deg; transform:rotate(var(--rotate)) scaleX(var(--scale-x)) scale(var(--min-font-size-inv)); }
 .pdf-text-layer .markedContent { display:contents; }
 .pdf-text-layer ::selection { background:#789db066; color:transparent; }
-.concept-capture-slot { height:62px; flex:none; padding-top:10px; }
-.concept-capture { width:100%; height:52px; border:1px solid #15191d; border-radius:var(--radius-sm); background:#20262b; color:#fff; padding:8px 11px; display:grid; gap:3px; text-align:left; cursor:pointer; box-shadow:0 5px 14px #11182025; }
-.concept-capture span { font-size:11px; font-weight:650; }
-.concept-capture small { overflow:hidden; color:#c8cdd1; font-size:9px; text-overflow:ellipsis; white-space:nowrap; }
 
 /* In-session Luna chat */
 .luna-chat { min-height:150px; max-height:310px; margin-top:18px; overflow:auto; display:grid; align-content:start; gap:9px; scrollbar-width:thin; }
@@ -464,7 +443,7 @@ button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-vis
 .viewer-flagged-slos li { padding-left:3px; font-size:12px; line-height:1.5; }
 .viewer-flagged-slos li+li { margin-top:7px; }
 
-@media(max-width:760px){.concept-bank-card{align-items:flex-start}.concept-archive{margin-top:12px}.concept-source strong{font-size:14px}.luna-chat{max-height:260px}}
+@media(max-width:760px){.luna-chat{max-height:260px}}
 
 /* Wider, higher-contrast curriculum navigation */
 .shell { grid-template-columns:292px minmax(0,1fr); }

@@ -19,17 +19,8 @@ create table if not exists public.fcom_prereads (
   primary key (user_id, id)
 );
 
-create table if not exists public.fcom_concepts (
-  user_id uuid not null references auth.users(id) on delete cascade,
-  id text not null,
-  data jsonb not null,
-  updated_at timestamptz not null default now(),
-  primary key (user_id, id)
-);
-
 alter table public.fcom_lectures enable row level security;
 alter table public.fcom_prereads enable row level security;
-alter table public.fcom_concepts enable row level security;
 
 drop policy if exists "Users manage their lectures" on public.fcom_lectures;
 create policy "Users manage their lectures"
@@ -40,12 +31,6 @@ with check ((select auth.uid()) = user_id);
 drop policy if exists "Users manage their prereads" on public.fcom_prereads;
 create policy "Users manage their prereads"
 on public.fcom_prereads for all to authenticated
-using ((select auth.uid()) = user_id)
-with check ((select auth.uid()) = user_id);
-
-drop policy if exists "Users manage their concepts" on public.fcom_concepts;
-create policy "Users manage their concepts"
-on public.fcom_concepts for all to authenticated
 using ((select auth.uid()) = user_id)
 with check ((select auth.uid()) = user_id);
 

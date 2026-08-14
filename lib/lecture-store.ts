@@ -1,4 +1,5 @@
 import { supabase } from "./supabase-client";
+import { lectureWeekValue } from "./curriculum";
 
 export type Slide = { page: number; text: string; heading: string };
 export type InkPoint = { x: number; y: number };
@@ -19,13 +20,12 @@ export type Lecture = {
   id: string;
   title: string;
   lecturer: string;
-  date: string;
+  week: number | null;
   course: string;
   academicYear: string;
   favorite: boolean;
   pages: number;
   slos: string[];
-  concepts: string[];
   outline: string[];
   summary: string;
   slides: Slide[];
@@ -55,15 +55,6 @@ export type PreRead = {
   createdAt: string;
 };
 
-export type ConceptRecord = {
-  id: string;
-  text: string;
-  lectureId: string;
-  page: number;
-  archived: boolean;
-  createdAt: string;
-};
-
 const DB_NAME = "medlibrary-local";
 const DB_VERSION = 3;
 const CLOUD_BUCKET = "fcom-library";
@@ -73,7 +64,6 @@ let cloudUserId: string | null = null;
 export type CloudLibrary = {
   lectures: Lecture[];
   preReads: PreRead[];
-  concepts: ConceptRecord[];
 };
 
 export type MigrationProgress = {
@@ -116,7 +106,6 @@ function openDatabase() {
       if (!db.objectStoreNames.contains("files")) db.createObjectStore("files", { keyPath: "id" });
       if (!db.objectStoreNames.contains("prereads")) db.createObjectStore("prereads", { keyPath: "id" });
       if (!db.objectStoreNames.contains("prereadFiles")) db.createObjectStore("prereadFiles", { keyPath: "id" });
-      if (!db.objectStoreNames.contains("concepts")) db.createObjectStore("concepts", { keyPath: "id" });
     };
     request.onsuccess = () => resolve(request.result);
     request.onerror = () => reject(request.error);
@@ -219,13 +208,12 @@ export function normalizeLecture(value: unknown): Lecture | null {
     id,
     title: textValue(lecture.title, "Untitled lecture"),
     lecturer: textValue(lecture.lecturer, "Lecturer not detected"),
-    date: textValue(lecture.date, "Date not detected"),
+    week: lectureWeekValue(lecture.week),
     course: textValue(lecture.course, "Unsorted"),
     academicYear: textValue(lecture.academicYear, "2026-2027"),
     favorite: Boolean(lecture.favorite),
     pages: Math.max(requestedPages, detectedPages, 1),
     slos: textList(lecture.slos),
-    concepts: textList(lecture.concepts),
     outline: textList(lecture.outline),
     summary: textValue(lecture.summary, "No lecture summary is available yet."),
     slides,
@@ -259,23 +247,6 @@ function normalizePreRead(value: unknown): PreRead | null {
     status,
     fileName: typeof preRead.fileName === "string" ? preRead.fileName : undefined,
     createdAt: textValue(preRead.createdAt, new Date(0).toISOString()),
-  };
-}
-
-function normalizeConcept(value: unknown): ConceptRecord | null {
-  if (!value || typeof value !== "object") return null;
-  const concept = value as Record<string, unknown>;
-  const id = textValue(concept.id);
-  const text = textValue(concept.text);
-  const lectureId = textValue(concept.lectureId);
-  if (!id || !text || !lectureId) return null;
-  return {
-    id,
-    text,
-    lectureId,
-    page: typeof concept.page === "number" && Number.isInteger(concept.page) && concept.page > 0 ? concept.page : 1,
-    archived: Boolean(concept.archived),
-    createdAt: textValue(concept.createdAt, new Date(0).toISOString()),
   };
 }
 
@@ -319,17 +290,6 @@ async function upsertCloudPreRead(preRead: PreRead, file?: Blob) {
   if (error) throw error;
 }
 
-async function upsertCloudConcept(concept: ConceptRecord) {
-  if (!supabase || !cloudUserId) return;
-  const { error } = await supabase.from("fcom_concepts").upsert({
-    user_id: cloudUserId,
-    id: concept.id,
-    data: concept,
-    updated_at: new Date().toISOString(),
-  }, { onConflict: "user_id,id" });
-  if (error) throw error;
-}
-
 async function downloadCloudFile(kind: "lectures" | "prereads", id: string) {
   if (!supabase || !cloudUserId) return null;
   const { data, error } = await supabase.storage.from(CLOUD_BUCKET).download(cloudFilePath(kind, id));
@@ -340,7 +300,7 @@ async function downloadCloudFile(kind: "lectures" | "prereads", id: string) {
   return data;
 }
 
-async function removeCloudRecord(table: "fcom_lectures" | "fcom_prereads" | "fcom_concepts", id: string, fileKind?: "lectures" | "prereads") {
+async function removeCloudRecord(table: "fcom_lectures" | "fcom_prereads", id: string, fileKind?: "lectures" | "prereads") {
   if (!supabase || !cloudUserId) return;
   if (fileKind) {
     const { error: fileError } = await supabase.storage.from(CLOUD_BUCKET).remove([cloudFilePath(fileKind, id)]);
@@ -485,37 +445,13 @@ export async function deletePreRead(id: string) {
   await attemptCloudSync(() => removeCloudRecord("fcom_prereads", id, "prereads"));
 }
 
-export async function loadConcepts(): Promise<ConceptRecord[]> {
-  const db = await openDatabase();
-  const concepts = await requestResult(db.transaction("concepts", "readonly").objectStore("concepts").getAll()) as unknown[];
-  db.close();
-  return concepts
-    .map(normalizeConcept)
-    .filter((concept): concept is ConceptRecord => concept !== null)
-    .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
-}
-
-export async function saveConcept(concept: ConceptRecord) {
-  const db = await openDatabase();
-  const tx = db.transaction("concepts", "readwrite");
-  tx.objectStore("concepts").put(concept);
-  await new Promise<void>((resolve, reject) => {
-    tx.oncomplete = () => resolve();
-    tx.onerror = () => reject(tx.error);
-  });
-  db.close();
-  await attemptCloudSync(() => upsertCloudConcept(concept));
-}
-
 async function cacheCloudLibrary(library: CloudLibrary) {
   const db = await openDatabase();
-  const tx = db.transaction(["lectures", "prereads", "concepts"], "readwrite");
+  const tx = db.transaction(["lectures", "prereads"], "readwrite");
   const lectureStore = tx.objectStore("lectures");
   const preReadStore = tx.objectStore("prereads");
-  const conceptStore = tx.objectStore("concepts");
   library.lectures.forEach((lecture) => lectureStore.put(lecture));
   library.preReads.forEach((preRead) => preReadStore.put(preRead));
-  library.concepts.forEach((concept) => conceptStore.put(concept));
   await new Promise<void>((resolve, reject) => {
     tx.oncomplete = () => resolve();
     tx.onerror = () => reject(tx.error);
@@ -524,13 +460,12 @@ async function cacheCloudLibrary(library: CloudLibrary) {
 }
 
 export async function loadCloudLibrary(): Promise<CloudLibrary> {
-  if (!supabase || !cloudUserId) return { lectures: [], preReads: [], concepts: [] };
-  const [lectureResult, preReadResult, conceptResult] = await Promise.all([
+  if (!supabase || !cloudUserId) return { lectures: [], preReads: [] };
+  const [lectureResult, preReadResult] = await Promise.all([
     supabase.from("fcom_lectures").select("data").eq("user_id", cloudUserId).order("updated_at", { ascending: false }),
     supabase.from("fcom_prereads").select("data").eq("user_id", cloudUserId).order("updated_at", { ascending: false }),
-    supabase.from("fcom_concepts").select("data").eq("user_id", cloudUserId).order("updated_at", { ascending: false }),
   ]);
-  const error = lectureResult.error ?? preReadResult.error ?? conceptResult.error;
+  const error = lectureResult.error ?? preReadResult.error;
   if (error) throw error;
   const lectures = (lectureResult.data ?? [])
     .map((row) => normalizeLecture((row as { data?: unknown }).data))
@@ -538,18 +473,15 @@ export async function loadCloudLibrary(): Promise<CloudLibrary> {
   const preReads = (preReadResult.data ?? [])
     .map((row) => normalizePreRead((row as { data?: unknown }).data))
     .filter((preRead): preRead is PreRead => preRead !== null);
-  const concepts = (conceptResult.data ?? [])
-    .map((row) => normalizeConcept((row as { data?: unknown }).data))
-    .filter((concept): concept is ConceptRecord => concept !== null);
-  const library = { lectures, preReads, concepts };
+  const library = { lectures, preReads };
   await cacheCloudLibrary(library);
   return library;
 }
 
 export async function migrateLocalLibraryToCloud(onProgress?: (progress: MigrationProgress) => void) {
   if (!supabase || !cloudUserId) throw new Error("Sign in before migrating this device.");
-  const [lectures, preReads, concepts] = await Promise.all([loadLectures(), loadPreReads(), loadConcepts()]);
-  const total = lectures.length + preReads.length + concepts.length;
+  const [lectures, preReads] = await Promise.all([loadLectures(), loadPreReads()]);
+  const total = lectures.length + preReads.length;
   let completed = 0;
   const report = (label: string) => {
     completed += 1;
@@ -565,11 +497,7 @@ export async function migrateLocalLibraryToCloud(onProgress?: (progress: Migrati
     await upsertCloudPreRead(preRead, file ?? undefined);
     report(preRead.title);
   }
-  for (const concept of concepts) {
-    await upsertCloudConcept(concept);
-    report(concept.text);
-  }
   const library = await loadCloudLibrary();
   announceCloudStatus("fcom-cloud-sync-ok", "Device library migrated");
-  return { library, counts: { lectures: lectures.length, preReads: preReads.length, concepts: concepts.length } };
+  return { library, counts: { lectures: lectures.length, preReads: preReads.length } };
 }
