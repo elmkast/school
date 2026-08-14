@@ -1181,10 +1181,10 @@ export default function Home() {
         const prompt = typeof record.prompt === "string" ? record.prompt.trim() : "";
         const answer = typeof record.answer === "string" ? record.answer.trim() : "";
         if (!sourceLectureId || !prompt || !answer) return [];
-        const type: QuestionType = record.type === "multiple-choice" ? "multiple-choice" : "short-answer";
-        const options = type === "multiple-choice" && Array.isArray(record.options)
+        const options = Array.isArray(record.options)
           ? record.options.filter((option): option is string => typeof option === "string" && Boolean(option.trim())).map((option) => option.trim()).slice(0, 6)
           : [];
+        if (record.type !== "multiple-choice" || options.length !== 4 || !options.includes(answer)) return [];
         const allowedPages = sourcePages.get(sourceLectureId) ?? new Set<number>();
         const pages = Array.isArray(record.sourcePages)
           ? Array.from(new Set(record.sourcePages.filter((page): page is number => typeof page === "number" && allowedPages.has(page)))).sort((a, b) => a - b)
@@ -1193,9 +1193,9 @@ export default function Home() {
         return [{
           id: crypto.randomUUID(),
           sourceLectureId,
-          type: type === "multiple-choice" && options.length >= 2 ? type : "short-answer" as QuestionType,
+          type: "multiple-choice" as QuestionType,
           prompt,
-          options: type === "multiple-choice" && options.length >= 2 ? options : [],
+          options,
           answer,
           explanation: typeof record.explanation === "string" ? record.explanation.trim() : "",
           sourcePages: pages.length ? pages : fallbackPage ? [fallbackPage] : [],
@@ -1223,9 +1223,9 @@ export default function Home() {
     const nextLectures = lectures.map((lecture) => {
       const additions = approved.filter((draft) => draft.sourceLectureId === lecture.id).map<QuestionRecord>((draft) => ({
         id: crypto.randomUUID(),
-        type: draft.type,
+        type: "multiple-choice",
         prompt: draft.prompt.trim(),
-        options: draft.type === "multiple-choice" ? draft.options.map((option) => option.trim()).filter(Boolean) : [],
+        options: draft.options.map((option) => option.trim()).filter(Boolean),
         answer: draft.answer.trim(),
         explanation: draft.explanation.trim(),
         sourcePages: draft.sourcePages,
@@ -2110,7 +2110,7 @@ export default function Home() {
             {!questionDrafts ? <>
               <div className="question-builder-options">
                 <label><span>Number of questions</span><input type="number" min="1" max="20" value={questionCount} onChange={(event) => setQuestionCount(Math.min(20, Math.max(1, Number(event.target.value) || 1)))}/></label>
-                <label className="question-direction"><span>Optional direction for Luna</span><textarea maxLength={2000} value={questionInstruction} onChange={(event) => setQuestionInstruction(event.target.value)} placeholder="For example: Focus on mechanisms and application questions; mostly multiple choice."/></label>
+                <label className="question-direction"><span>Optional direction for Luna</span><textarea maxLength={2000} value={questionInstruction} onChange={(event) => setQuestionInstruction(event.target.value)} placeholder="For example: Focus on mechanisms and clinical application."/></label>
               </div>
               <div className="question-source-toolbar"><span><strong>{selectedQuestionSourceCount}</strong> source selection{selectedQuestionSourceCount === 1 ? "" : "s"}</span><div><button onClick={() => setQuestionLectureSelection(lectures.map((lecture) => lecture.id), true)}>Select all lectures</button><button onClick={() => { setSelectedQuestionLectureIds(new Set()); setSelectedQuestionSlideKeys(new Set()); }}>Clear</button></div></div>
               <div className="question-source-tree">{academicYears.map((year) => {
@@ -2145,7 +2145,7 @@ export default function Home() {
                 return <article className={`question-draft-card ${draft.approved ? "approved" : ""}`} key={draft.id}>
                   <header><label><input type="checkbox" checked={draft.approved} onChange={(event) => updateQuestionDraft(draft.id, { approved: event.target.checked })}/><span>{draft.approved ? "Approved" : "Not approved"}</span></label><small>{sourceLecture?.title ?? "Unknown lecture"} · {draft.sourcePages.map((page) => `p.${page}`).join(", ")}</small><button aria-label={`Remove draft question ${index + 1}`} onClick={() => setQuestionDrafts((current) => current?.filter((item) => item.id !== draft.id) ?? null)}><AppIcon name="trash"/></button></header>
                   <div className="question-draft-fields">
-                    <label><span>Question type</span><select value={draft.type} onChange={(event) => updateQuestionDraft(draft.id, { type: event.target.value as QuestionType, options: event.target.value === "short-answer" ? [] : draft.options.length ? draft.options : ["", "", "", ""] })}><option value="multiple-choice">Multiple choice</option><option value="short-answer">Short answer</option></select></label>
+                    <div className="question-draft-type"><span>Question type</span><strong>Multiple choice</strong></div>
                     <label><span>Question</span><textarea value={draft.prompt} onChange={(event) => updateQuestionDraft(draft.id, { prompt: event.target.value })}/></label>
                     {draft.type === "multiple-choice" && <div className="draft-options"><span>Answer choices</span>{draft.options.map((option, optionIndex) => <input key={optionIndex} aria-label={`Answer choice ${optionIndex + 1}`} value={option} onChange={(event) => updateQuestionDraft(draft.id, { options: draft.options.map((item, index) => index === optionIndex ? event.target.value : item) })}/>)}</div>}
                     <label><span>Correct answer</span><textarea value={draft.answer} onChange={(event) => updateQuestionDraft(draft.id, { answer: event.target.value })}/></label>

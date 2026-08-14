@@ -625,6 +625,9 @@ button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-vis
 .question-draft-card>header>button { border:0; background:none; color:#7d4b4b; padding:2px; cursor:pointer; }
 .question-draft-card>header>button svg { width:15px; height:15px; }
 .question-draft-fields { padding:12px; display:grid; grid-template-columns:150px minmax(0,1fr); gap:11px 13px; }
+.question-draft-type { display:grid; gap:5px; align-content:start; }
+.question-draft-type span { color:#596168; font-size:9px; font-weight:700; letter-spacing:.45px; text-transform:uppercase; }
+.question-draft-type strong { min-height:34px; display:flex; align-items:center; border:1px solid #d8dcdf; border-radius:var(--radius-sm); background:#f5f6f7; color:#252a2f; padding:8px 9px; font-size:11px; font-weight:600; }
 .question-draft-fields label:not(:first-child),.draft-options { grid-column:1/-1; }
 .question-draft-fields textarea { min-height:58px; resize:vertical; line-height:1.45; }
 .draft-options { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:6px; }

@@ -16,7 +16,7 @@ const questionFormat = {
           type: "object",
           properties: {
             sourceLectureId: { type: "string" },
-            type: { type: "string", enum: ["multiple-choice", "short-answer"] },
+            type: { type: "string", enum: ["multiple-choice"] },
             prompt: { type: "string" },
             options: { type: "array", items: { type: "string" } },
             answer: { type: "string" },
@@ -75,9 +75,8 @@ export default async (request: Request) => {
 For every question:
 - Copy sourceLectureId exactly from one supplied LECTURE ID; never combine lectures into one question.
 - Cite the relevant page number or page numbers in sourcePages.
-- Use either multiple-choice or short-answer. Aim for a useful mixture unless the user requests otherwise.
-- For multiple-choice, provide exactly four plausible options and make answer exactly match the correct option text.
-- For short-answer, return an empty options array.
+- Every question must be multiple-choice.
+- Provide exactly four plausible options and make answer exactly match the correct option text.
 - Keep the explanation concise and grounded in the cited material.
 - Do not mention that you are an AI, the prompt, or the source excerpt.
 
