@@ -194,6 +194,7 @@ export default function Home() {
   const [searchCourse, setSearchCourse] = useState("all");
   const [searchLecturer, setSearchLecturer] = useState("all");
   const [searchSort, setSearchSort] = useState<"relevance" | "week-asc" | "name-asc">("relevance");
+  const [lectureWeekFilter, setLectureWeekFilter] = useState("all");
   const [lectureSort, setLectureSort] = useState<"week-asc" | "name-asc">("week-asc");
   const [uploading, setUploading] = useState(false);
   const [uploadQueue, setUploadQueue] = useState<UploadJob[]>([]);
@@ -330,10 +331,12 @@ export default function Home() {
         : lectures.filter((lecture) => lecture.academicYear === activeYear
           && (activeCourse === "All courses" || lecture.course === activeCourse)
           && (activeLecturer === ALL_LECTURERS || lecture.lecturer === activeLecturer));
-    return [...filtered].sort((a, b) => lectureSort === "name-asc"
+    const weekFiltered = filtered.filter((lecture) => lectureWeekFilter === "all"
+      || (lectureWeekFilter === "unassigned" ? lecture.week === null : lecture.week === Number(lectureWeekFilter)));
+    return [...weekFiltered].sort((a, b) => lectureSort === "name-asc"
       ? compareText(a.title, b.title)
       : compareLectureWeeks(a.week, b.week) || compareText(a.title, b.title));
-  }, [lectures, view, allLecturesSelected, activeYear, activeCourse, activeLecturer, lectureSort]);
+  }, [lectures, view, allLecturesSelected, activeYear, activeCourse, activeLecturer, lectureWeekFilter, lectureSort]);
   const displayActive = visibleLectures.find((lecture) => lecture.id === activeId) ?? visibleLectures[0];
   const visibleSloLectures = useMemo(() => {
     const filtered = flaggedSLOsSelected
@@ -1056,6 +1059,15 @@ export default function Home() {
     setNotice(updated.favorite ? "Added to favorites." : "Removed from favorites.");
   }
 
+  async function updateLectureWeek(lecture: Lecture, value: string) {
+    const week = value ? Number(value) : null;
+    if (lecture.week === week) return;
+    const updated = { ...lecture, week };
+    setLectures((current) => current.map((item) => item.id === lecture.id ? updated : item));
+    await saveLecture(updated);
+    setNotice(week === null ? "Lecture week cleared." : `Lecture assigned to Week ${week}.`);
+  }
+
   function startMetadataEdit(lecture: Lecture) {
     setCourseDraft(lecture.course);
     if (lecturerOptions.includes(lecture.lecturer)) {
@@ -1386,7 +1398,7 @@ export default function Home() {
 
         {(view === "library" || view === "favorites") && <div className={`content-grid ${displayActive ? "" : "single-column"}`}>
           <section className="library-panel">
-            <div className="page-toolbar"><div className="eyebrow">{view === "favorites" ? "SAVED LECTURES" : libraryLocationLabel}</div><label className="sort-control"><span>Sort by</span><select value={lectureSort} onChange={(event) => setLectureSort(event.target.value as "week-asc" | "name-asc")}><option value="week-asc">Week · earliest first</option><option value="name-asc">Name · A–Z</option></select></label></div>
+            <div className="page-toolbar"><div className="eyebrow">{view === "favorites" ? "SAVED LECTURES" : libraryLocationLabel}</div><div className="lecture-toolbar-controls"><label className="sort-control"><span>Filter by</span><select aria-label="Filter lectures by curriculum week" value={lectureWeekFilter} onChange={(event) => setLectureWeekFilter(event.target.value)}><option value="all">All weeks</option>{LECTURE_WEEK_OPTIONS.map((week) => <option key={week} value={week}>Week {week}</option>)}<option value="unassigned">Week unassigned</option></select></label><label className="sort-control"><span>Sort by</span><select value={lectureSort} onChange={(event) => setLectureSort(event.target.value as "week-asc" | "name-asc")}><option value="week-asc">Week · earliest first</option><option value="name-asc">Name · A–Z</option></select></label></div></div>
             {view === "library" && <button className={`dropzone top-dropzone ${dragging ? "dragging" : ""}`} onClick={() => fileInput.current?.click()} onDragOver={(e) => { e.preventDefault(); setDragging(true); }} onDragLeave={() => setDragging(false)} onDrop={(e) => { e.preventDefault(); setDragging(false); if (e.dataTransfer.files.length) enqueueFiles(e.dataTransfer.files); }}>
               <span><AppIcon name="upload"/></span><strong>Drop one or more lectures here</strong><small>PDF · Import to {currentImportDestination.label}</small>
             </button>}
@@ -1395,6 +1407,12 @@ export default function Home() {
                 <button className="lecture-open" onClick={() => setActiveId(lecture.id)}>
                   <span className="lecture-copy"><small>{lecture.course.toUpperCase()}</small><strong>{lecture.title}</strong><em>{lecture.lecturer} · {lectureWeekLabel(lecture.week)}</em></span>
                 </button>
+                <label className="lecture-week-control">
+                  <select aria-label={`Curriculum week for ${lecture.title}`} value={lecture.week ?? ""} onChange={(event) => updateLectureWeek(lecture, event.target.value)}>
+                    <option value="">Week —</option>
+                    {LECTURE_WEEK_OPTIONS.map((week) => <option key={week} value={week}>Week {week}</option>)}
+                  </select>
+                </label>
                 <div className="lecture-card-rail">
                   <button className="lecture-slo-peek" aria-label={`Preview ${lecture.slos.length} session learning objectives`}><b>{lecture.slos.length} SLO{lecture.slos.length === 1 ? "" : "s"}</b></button><span className="slo-tooltip" role="tooltip"><strong>Session learning objectives</strong>{lecture.slos.length > 0 ? <ol>{lecture.slos.map((slo, index) => <li key={`${index}-${slo}`}>{slo}</li>)}</ol> : <p>No SLOs were extracted for this lecture.</p>}</span>
                   <button className="card-open-brief" onClick={() => { setActiveId(lecture.id); openLectureBrief(lecture.id); }}><span>Open lecture</span><AppIcon name="arrow"/></button>
