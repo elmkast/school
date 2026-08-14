@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { deleteLecture, deletePreRead, getLectureFile, getPreReadFile, loadCloudLibrary, loadConcepts, loadLectures, loadPreReads, migrateLocalLibraryToCloud, normalizeLecture, saveConcept, saveLecture, saveLectures, savePreRead, setCloudUser, type ConceptRecord, type InkPoint, type InkStroke, type Lecture, type MigrationProgress, type PreRead, type PreReadStatus, type Slide } from "../lib/lecture-store";
+import { deleteLecture, deletePreRead, getLectureFile, getPreReadFile, loadCloudLibrary, loadConcepts, loadLectures, loadPreReads, migrateLocalLibraryToCloud, normalizeLecture, saveConcept, saveLecture, saveLectures, savePreRead, setCloudUser, type ConceptRecord, type InkPoint, type InkStroke, type Lecture, type MigrationProgress, type PreRead, type PreReadStatus, type QuestionRecord, type QuestionType, type Slide } from "../lib/lecture-store";
 import { downloadSloExcel } from "../lib/slo-excel";
 import { downloadSloPdf } from "../lib/slo-pdf";
 import { cloudConfigured, supabase, type CloudSession } from "../lib/supabase-client";
@@ -34,6 +34,7 @@ const seedLectures: Lecture[] = [
     markups: {},
     markedSlides: [],
     flaggedSLOs: [],
+    questions: [],
     slides: [
       { page: 7, heading: "Disease gene identification", text: "Linkage analysis maps a region containing a disease gene; whole-genome and exome sequencing identify causative genes and mutations." },
       { page: 16, heading: "Whole Exome Sequencing", text: "WES captures and sequences exons, which comprise about 2% of the genome and contain many disease-causing mutations." },
@@ -67,6 +68,7 @@ const seedLectures: Lecture[] = [
     markups: {},
     markedSlides: [],
     flaggedSLOs: [],
+    questions: [],
     slides: [
       { page: 8, heading: "Chromosome nomenclature", text: "ISCN positions use chromosome number, p or q arm, region, band and sub-band." },
       { page: 18, heading: "Comparison of chromosome analysis", text: "Chromosome banding, FISH and array CGH differ in resolution and ability to detect balanced rearrangements or DNA copy-number changes." },
@@ -137,7 +139,7 @@ function displayDateFromInput(value: string) {
   return new Date(year, month - 1, day).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
 }
 
-function mergeAiLectureBrief(base: Lecture, response: unknown, sourceSlides: Slide[], academicYear: string) {
+function mergeAiLectureBrief(base: Lecture, response: unknown, sourceSlides: Slide[], destination: ImportDestination) {
   const brief = response && typeof response === "object" && !Array.isArray(response) ? response as Record<string, unknown> : {};
   const accepted: Record<string, unknown> = {};
   const rejectedFields: string[] = [];
@@ -181,15 +183,18 @@ function mergeAiLectureBrief(base: Lecture, response: unknown, sourceSlides: Sli
     markups: {},
     markedSlides: [],
     flaggedSLOs: [],
-    academicYear,
+    academicYear: destination.academicYear,
+    course: destination.course ?? accepted.course ?? base.course,
+    lecturer: destination.lecturer ?? accepted.lecturer ?? base.lecturer,
     favorite: false,
   });
   return { lecture: normalized ?? base, rejectedFields };
 }
 
 type UploadStatus = "queued" | "extracting" | "analyzing" | "saving" | "done" | "error";
-type UploadJob = { id: string; name: string; status: UploadStatus; error?: string };
-type PendingUpload = { id: string; file: File };
+type ImportDestination = { academicYear: string; course: string | null; lecturer: string | null; label: string };
+type UploadJob = { id: string; name: string; destinationLabel: string; status: UploadStatus; error?: string };
+type PendingUpload = { id: string; file: File; destination: ImportDestination };
 type SearchKind = "lecture" | "slo" | "slide" | "preread";
 type LectureSearchResult = {
   kind: "lecture" | "slo" | "slide";
@@ -227,6 +232,18 @@ type LunaChatMessage = {
   page: number;
 };
 
+type QuestionDraft = {
+  id: string;
+  sourceLectureId: string;
+  type: QuestionType;
+  prompt: string;
+  options: string[];
+  answer: string;
+  explanation: string;
+  sourcePages: number[];
+  approved: boolean;
+};
+
 function searchMatchScore(needle: string, title: string, body: string) {
   const normalizedTitle = title.toLowerCase();
   const normalizedBody = body.toLowerCase();
@@ -250,7 +267,7 @@ function searchResultCollectionTitle(result: SearchResult) {
   return result.kind === "preread" ? result.preRead.title : result.lecture.title;
 }
 
-function aiEndpoint(action: "analyze" | "chat" | "reparse-slos") {
+function aiEndpoint(action: "analyze" | "chat" | "reparse-slos" | "generate-questions") {
   if (typeof window !== "undefined" && !["localhost", "127.0.0.1"].includes(window.location.hostname)) {
     return `/.netlify/functions/${action}`;
   }
@@ -550,6 +567,7 @@ type CurriculumTreeProps = {
   allSelected: boolean;
   isCurrentSection: boolean;
   showCounts?: boolean;
+  countItems?: (items: Lecture[]) => number;
   flaggedSelected?: boolean;
   onSelectFlagged?: () => void;
   onSelectYear: (year: string) => void;
@@ -557,8 +575,7 @@ type CurriculumTreeProps = {
   onSelectLecturer: (year: string, course: string, lecturer: string) => void;
 };
 
-function CurriculumTree({ lectures, academicYears, coursesByYear, expandedYear, expandedCourse, selectedYear, selectedCourse, selectedLecturer, allSelected, isCurrentSection, showCounts = true, flaggedSelected = false, onSelectFlagged, onSelectYear, onSelectCourse, onSelectLecturer }: CurriculumTreeProps) {
-  const countItems = (items: Lecture[]) => items.length;
+function CurriculumTree({ lectures, academicYears, coursesByYear, expandedYear, expandedCourse, selectedYear, selectedCourse, selectedLecturer, allSelected, isCurrentSection, showCounts = true, countItems = (items) => items.length, flaggedSelected = false, onSelectFlagged, onSelectYear, onSelectCourse, onSelectLecturer }: CurriculumTreeProps) {
   const folderSelectionIsCurrent = isCurrentSection && !allSelected && !flaggedSelected;
   return <div className="nav-tree">
     {onSelectFlagged && <button className={`tree-all flagged-node ${isCurrentSection && flaggedSelected ? "active" : ""}`} onClick={onSelectFlagged}><span><AppIcon name="flag"/>Flagged SLOs</span></button>}
@@ -591,7 +608,7 @@ export default function Home() {
   const [concepts, setConcepts] = useState<ConceptRecord[]>([]);
   const [activeId, setActiveId] = useState(seedLectures[0].id);
   const [query, setQuery] = useState("");
-  const [view, setView] = useState<"home" | "library" | "favorites" | "search" | "slos" | "prereads" | "concepts">("home");
+  const [view, setView] = useState<"home" | "library" | "favorites" | "search" | "slos" | "prereads" | "concepts" | "questions">("home");
   const [activeYear, setActiveYear] = useState(currentAcademicYear());
   const [expandedYear, setExpandedYear] = useState<string | null>(currentAcademicYear());
   const [expandedCourse, setExpandedCourse] = useState<string | null>(null);
@@ -614,6 +631,22 @@ export default function Home() {
   const [activeSloLecturer, setActiveSloLecturer] = useState(ALL_LECTURERS);
   const [allSLOsSelected, setAllSLOsSelected] = useState(true);
   const [flaggedSLOsSelected, setFlaggedSLOsSelected] = useState(false);
+  const [questionTreeExpanded, setQuestionTreeExpanded] = useState(false);
+  const [expandedQuestionYear, setExpandedQuestionYear] = useState<string | null>(currentAcademicYear());
+  const [expandedQuestionCourse, setExpandedQuestionCourse] = useState<string | null>(null);
+  const [activeQuestionYear, setActiveQuestionYear] = useState(currentAcademicYear());
+  const [activeQuestionCourse, setActiveQuestionCourse] = useState("All courses");
+  const [activeQuestionLecturer, setActiveQuestionLecturer] = useState(ALL_LECTURERS);
+  const [allQuestionsSelected, setAllQuestionsSelected] = useState(true);
+  const [questionBuilderOpen, setQuestionBuilderOpen] = useState(false);
+  const [selectedQuestionLectureIds, setSelectedQuestionLectureIds] = useState<Set<string>>(new Set());
+  const [selectedQuestionSlideKeys, setSelectedQuestionSlideKeys] = useState<Set<string>>(new Set());
+  const [expandedQuestionSourceIds, setExpandedQuestionSourceIds] = useState<Set<string>>(new Set());
+  const [questionCount, setQuestionCount] = useState(6);
+  const [questionInstruction, setQuestionInstruction] = useState("");
+  const [questionDrafts, setQuestionDrafts] = useState<QuestionDraft[] | null>(null);
+  const [questionGenerating, setQuestionGenerating] = useState(false);
+  const [revealedQuestionIds, setRevealedQuestionIds] = useState<Set<string>>(new Set());
   const [sloExportOpen, setSloExportOpen] = useState(false);
   const [selectedExportLectureIds, setSelectedExportLectureIds] = useState<Set<string>>(new Set());
   const [sloExportFormat, setSloExportFormat] = useState<"pdf" | "excel">("pdf");
@@ -785,6 +818,20 @@ export default function Home() {
       .filter((lecture) => lecture.slos.length > 0)
       .sort((a, b) => lectureDateTimestamp(b.date) - lectureDateTimestamp(a.date) || compareText(a.title, b.title));
   }, [lectures, flaggedSLOsSelected, allSLOsSelected, activeSloYear, activeSloCourse, activeSloLecturer]);
+  const questionLectures = useMemo(() => lectures.filter((lecture) => lecture.questions.length > 0), [lectures]);
+  const questionAcademicYears = useMemo(() => Array.from(new Set(questionLectures.map((lecture) => lecture.academicYear))).sort().reverse(), [questionLectures]);
+  const questionCoursesByYear = useMemo(() => questionAcademicYears.reduce<Record<string, string[]>>((folders, year) => {
+    folders[year] = Array.from(new Set(questionLectures.filter((lecture) => lecture.academicYear === year).map((lecture) => lecture.course))).sort(compareText);
+    return folders;
+  }, {}), [questionAcademicYears, questionLectures]);
+  const visibleQuestionLectures = useMemo(() => {
+    const filtered = allQuestionsSelected
+      ? questionLectures
+      : questionLectures.filter((lecture) => lecture.academicYear === activeQuestionYear
+        && (activeQuestionCourse === "All courses" || lecture.course === activeQuestionCourse)
+        && (activeQuestionLecturer === ALL_LECTURERS || lecture.lecturer === activeQuestionLecturer));
+    return [...filtered].sort((a, b) => lectureDateTimestamp(b.date) - lectureDateTimestamp(a.date) || compareText(a.title, b.title));
+  }, [questionLectures, allQuestionsSelected, activeQuestionYear, activeQuestionCourse, activeQuestionLecturer]);
   const homeFlaggedLectures = useMemo(() => lectures
     .filter((lecture) => lecture.flaggedSLOs.some((index) => Boolean(lecture.slos[index])))
     .sort((a, b) => lectureDateTimestamp(b.date) - lectureDateTimestamp(a.date) || compareText(a.title, b.title)), [lectures]);
@@ -838,6 +885,12 @@ export default function Home() {
     window.addEventListener("keydown", handleKey);
     return () => window.removeEventListener("keydown", handleKey);
   }, [sloReparseLectureId, sloReparseLoading]);
+  useEffect(() => {
+    if (!questionBuilderOpen) return;
+    const handleKey = (event: KeyboardEvent) => { if (event.key === "Escape" && !questionGenerating) setQuestionBuilderOpen(false); };
+    window.addEventListener("keydown", handleKey);
+    return () => window.removeEventListener("keydown", handleKey);
+  }, [questionBuilderOpen, questionGenerating]);
   useEffect(() => {
     if (!notice) return;
     const timeout = window.setTimeout(() => setNotice(""), 4500);
@@ -1000,6 +1053,166 @@ export default function Home() {
     setNotice(`Updated ${updated.title} with ${slos.length} SLO${slos.length === 1 ? "" : "s"}.`);
   }
 
+  function questionSlideKey(lectureId: string, page: number) {
+    return `${lectureId}::${page}`;
+  }
+
+  function openQuestionBuilder(lectureId?: string, page?: number) {
+    const lectureIds = new Set<string>();
+    const slideKeys = new Set<string>();
+    const expandedIds = new Set<string>();
+    if (lectureId) {
+      expandedIds.add(lectureId);
+      if (page) slideKeys.add(questionSlideKey(lectureId, page));
+      else lectureIds.add(lectureId);
+    }
+    setSelectedQuestionLectureIds(lectureIds);
+    setSelectedQuestionSlideKeys(slideKeys);
+    setExpandedQuestionSourceIds(expandedIds);
+    setQuestionDrafts(null);
+    setQuestionInstruction("");
+    setQuestionBuilderOpen(true);
+  }
+
+  function setQuestionLectureSelection(ids: string[], selected: boolean) {
+    setSelectedQuestionLectureIds((current) => {
+      const next = new Set(current);
+      ids.forEach((id) => selected ? next.add(id) : next.delete(id));
+      return next;
+    });
+    if (selected) setSelectedQuestionSlideKeys((current) => new Set([...current].filter((key) => !ids.some((id) => key.startsWith(`${id}::`)))));
+  }
+
+  function toggleQuestionSlide(lectureId: string, page: number, selected: boolean) {
+    setSelectedQuestionLectureIds((current) => {
+      const next = new Set(current);
+      next.delete(lectureId);
+      return next;
+    });
+    setSelectedQuestionSlideKeys((current) => {
+      const next = new Set(current);
+      const key = questionSlideKey(lectureId, page);
+      if (selected) next.add(key); else next.delete(key);
+      return next;
+    });
+  }
+
+  function selectedQuestionSources() {
+    const selected = lectures.flatMap((lecture) => {
+      const wholeLecture = selectedQuestionLectureIds.has(lecture.id);
+      const slides = wholeLecture
+        ? lecture.slides
+        : lecture.slides.filter((slide) => selectedQuestionSlideKeys.has(questionSlideKey(lecture.id, slide.page)));
+      if (!slides.length) return [];
+      return [{ lectureId: lecture.id, title: lecture.title, slos: lecture.slos, slides }];
+    });
+    const perLectureCharacterBudget = Math.max(500, Math.floor(80_000 / Math.max(1, selected.length)));
+    return selected.map((source) => {
+      let remaining = perLectureCharacterBudget;
+      const slides = source.slides.flatMap((slide) => {
+        if (remaining <= 0) return [];
+        const text = slide.text.slice(0, remaining);
+        remaining -= text.length;
+        return [{ ...slide, text }];
+      });
+      return { ...source, slides };
+    });
+  }
+
+  async function generateQuestionDrafts() {
+    const sources = selectedQuestionSources();
+    if (!sources.length) { setNotice("Select at least one lecture or slide."); return; }
+    setQuestionGenerating(true);
+    try {
+      const response = await fetch(aiEndpoint("generate-questions"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sources, count: questionCount, instruction: questionInstruction.trim().slice(0, 2000) }),
+      });
+      const data = await response.json() as { questions?: unknown; error?: string; detail?: string };
+      if (!response.ok) throw new Error(data.error || data.detail || "Luna could not draft questions.");
+      const sourcePages = new Map(sources.map((source) => [source.lectureId, new Set(source.slides.map((slide) => slide.page))]));
+      const drafts = Array.isArray(data.questions) ? data.questions.flatMap((value) => {
+        if (!value || typeof value !== "object" || Array.isArray(value)) return [];
+        const record = value as Record<string, unknown>;
+        const sourceLectureId = typeof record.sourceLectureId === "string" && sourcePages.has(record.sourceLectureId) ? record.sourceLectureId : "";
+        const prompt = typeof record.prompt === "string" ? record.prompt.trim() : "";
+        const answer = typeof record.answer === "string" ? record.answer.trim() : "";
+        if (!sourceLectureId || !prompt || !answer) return [];
+        const type: QuestionType = record.type === "multiple-choice" ? "multiple-choice" : "short-answer";
+        const options = type === "multiple-choice" && Array.isArray(record.options)
+          ? record.options.filter((option): option is string => typeof option === "string" && Boolean(option.trim())).map((option) => option.trim()).slice(0, 6)
+          : [];
+        const allowedPages = sourcePages.get(sourceLectureId) ?? new Set<number>();
+        const pages = Array.isArray(record.sourcePages)
+          ? Array.from(new Set(record.sourcePages.filter((page): page is number => typeof page === "number" && allowedPages.has(page)))).sort((a, b) => a - b)
+          : [];
+        const fallbackPage = allowedPages.values().next().value as number | undefined;
+        return [{
+          id: crypto.randomUUID(),
+          sourceLectureId,
+          type: type === "multiple-choice" && options.length >= 2 ? type : "short-answer" as QuestionType,
+          prompt,
+          options: type === "multiple-choice" && options.length >= 2 ? options : [],
+          answer,
+          explanation: typeof record.explanation === "string" ? record.explanation.trim() : "",
+          sourcePages: pages.length ? pages : fallbackPage ? [fallbackPage] : [],
+          approved: true,
+        }];
+      }) : [];
+      if (!drafts.length) throw new Error("Luna did not return any usable questions.");
+      setQuestionDrafts(drafts);
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "Luna could not draft questions.");
+    } finally {
+      setQuestionGenerating(false);
+    }
+  }
+
+  function updateQuestionDraft(id: string, changes: Partial<QuestionDraft>) {
+    setQuestionDrafts((current) => current?.map((draft) => draft.id === id ? { ...draft, ...changes } : draft) ?? null);
+  }
+
+  async function approveQuestionDrafts() {
+    const approved = (questionDrafts ?? []).filter((draft) => draft.approved && draft.prompt.trim() && draft.answer.trim());
+    if (!approved.length) { setNotice("Approve at least one complete question."); return; }
+    const now = new Date().toISOString();
+    const changed: Lecture[] = [];
+    const nextLectures = lectures.map((lecture) => {
+      const additions = approved.filter((draft) => draft.sourceLectureId === lecture.id).map<QuestionRecord>((draft) => ({
+        id: crypto.randomUUID(),
+        type: draft.type,
+        prompt: draft.prompt.trim(),
+        options: draft.type === "multiple-choice" ? draft.options.map((option) => option.trim()).filter(Boolean) : [],
+        answer: draft.answer.trim(),
+        explanation: draft.explanation.trim(),
+        sourcePages: draft.sourcePages,
+        createdAt: now,
+      }));
+      if (!additions.length) return lecture;
+      const updated = { ...lecture, questions: [...lecture.questions, ...additions] };
+      changed.push(updated);
+      return updated;
+    });
+    setLectures(nextLectures);
+    await Promise.all(changed.map((lecture) => saveLecture(lecture)));
+    setQuestionBuilderOpen(false);
+    setQuestionDrafts(null);
+    setAllQuestionsSelected(true);
+    setQuestionTreeExpanded(true);
+    setView("questions");
+    setNotice(`Added ${approved.length} approved question${approved.length === 1 ? "" : "s"} to the question bank.`);
+  }
+
+  async function removeQuestion(lectureId: string, questionId: string) {
+    const lecture = lectures.find((item) => item.id === lectureId);
+    if (!lecture || !window.confirm("Remove this question from the question bank?")) return;
+    const updated = { ...lecture, questions: lecture.questions.filter((question) => question.id !== questionId) };
+    setLectures((current) => current.map((item) => item.id === lectureId ? updated : item));
+    await saveLecture(updated);
+    setNotice("Question removed.");
+  }
+
   function openSloExport() {
     setSelectedExportLectureIds(new Set(visibleSloLectures.map((lecture) => lecture.id)));
     setSloExportOpen(true);
@@ -1036,11 +1249,25 @@ export default function Home() {
     setNotice(`Created an SLO ${sloExportFormat === "excel" ? "Excel workbook" : "PDF"} from ${selected.length} lecture${selected.length === 1 ? "" : "s"}.`);
   }
 
-  async function importLecture(file: File, onStage: (status: UploadStatus) => void) {
+  function selectedImportDestination(): ImportDestination {
+    if (view !== "library" || allLecturesSelected) {
+      return { academicYear: activeYear, course: null, lecturer: null, label: `${activeYear} · course detected by Luna` };
+    }
+    const course = activeCourse === "All courses" ? "Unassigned course" : activeCourse;
+    const lecturer = activeCourse !== "All courses" && activeLecturer !== ALL_LECTURERS ? activeLecturer : null;
+    return {
+      academicYear: activeYear,
+      course,
+      lecturer,
+      label: `${activeYear} · ${course}${lecturer ? ` · ${lecturerFolderLabel(lecturer)}` : ""}`,
+    };
+  }
+
+  async function importLecture(file: File, destination: ImportDestination, onStage: (status: UploadStatus) => void) {
     if (file.type !== "application/pdf" && !file.name.toLowerCase().endsWith(".pdf")) {
       throw new Error("Please choose a PDF lecture deck.");
     }
-    const diagnosticContext = { fileName: file.name, fileSizeBytes: file.size, fileType: file.type || "unknown" };
+    const diagnosticContext = { fileName: file.name, fileSizeBytes: file.size, fileType: file.type || "unknown", destination: destination.label };
     recordDiagnostic("upload", "Lecture import started", diagnosticContext);
     setUploadDiagnosticCheckpoint("starting", diagnosticContext);
     onStage("extracting");
@@ -1067,14 +1294,14 @@ export default function Home() {
       }
       } finally {
         try { pdf.cleanup(); } catch { /* PDF.js may already have released these resources. */ }
-        try { await pdf.destroy(); } catch { /* Cleanup must not fail an otherwise successful import. */ }
+        try { await (pdf as unknown as { destroy: () => Promise<void> }).destroy(); } catch { /* Cleanup must not fail an otherwise successful import. */ }
         data = new Uint8Array(0);
       }
       const first = slides[0]?.text ?? file.name.replace(/\.pdf$/i, "");
       const title = first.replace(/^\d+\s*/, "").split(/(?:August|September|October|November|December|January|February|March|April|May|June|July)\s+\d+/i)[0].replace(/[“”"]/g, "").trim().slice(0, 100) || file.name.replace(/\.pdf$/i, "");
       const lecture: Lecture = {
-        id: crypto.randomUUID(), title, lecturer: "Lecturer not detected", date: new Date().toLocaleDateString(), course: "Unsorted",
-        academicYear: activeYear, favorite: false, pages: pageCount, slos: detectSLOs(slides), concepts: deriveConcepts(slides), outline: [], summary: `Imported ${pageCount} slides. Review the slide index and SLOs below; an AI brief will be added when available.`, slides, notes: {}, markups: {}, markedSlides: [], flaggedSLOs: [], fileName: file.name, createdAt: new Date().toISOString(),
+        id: crypto.randomUUID(), title, lecturer: destination.lecturer ?? "Lecturer not detected", date: new Date().toLocaleDateString(), course: destination.course ?? "Unsorted",
+        academicYear: destination.academicYear, favorite: false, pages: pageCount, slos: detectSLOs(slides), concepts: deriveConcepts(slides), outline: [], summary: `Imported ${pageCount} slides. Review the slide index and SLOs below; an AI brief will be added when available.`, slides, notes: {}, markups: {}, markedSlides: [], flaggedSLOs: [], questions: [], fileName: file.name, createdAt: new Date().toISOString(),
       };
       onStage("analyzing");
       recordDiagnostic("upload", "PDF extraction finished; Luna analysis started", { ...diagnosticContext, pageCount, extractedCharacters: slides.reduce((total, slide) => total + slide.text.length, 0) });
@@ -1090,7 +1317,7 @@ export default function Home() {
         });
         const response = await fetch(aiEndpoint("analyze"), { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ lecture: { ...lecture, slides: analysisSlides } }) });
         if (response.ok) {
-          const merged = mergeAiLectureBrief(lecture, await response.json(), slides, activeYear);
+          const merged = mergeAiLectureBrief(lecture, await response.json(), slides, destination);
           Object.assign(lecture, merged.lecture);
           if (merged.rejectedFields.length) recordDiagnostic("upload", "Invalid Luna metadata was safely ignored", { ...diagnosticContext, rejectedFields: merged.rejectedFields });
         } else aiFailed = true;
@@ -1124,7 +1351,7 @@ export default function Home() {
         const job = pendingUploads.current.shift();
         if (!job) continue;
         try {
-          await importLecture(job.file, (status) => updateUploadJob(job.id, { status }));
+          await importLecture(job.file, job.destination, (status) => updateUploadJob(job.id, { status }));
           updateUploadJob(job.id, { status: "done" });
         } catch (error) {
           updateUploadJob(job.id, { status: "error", error: error instanceof Error ? error.message : "Import failed" });
@@ -1144,9 +1371,10 @@ export default function Home() {
   function enqueueFiles(fileList: FileList | File[]) {
     const files = Array.from(fileList).filter((file) => file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf"));
     if (!files.length) { setNotice("Please choose one or more PDF lecture decks."); return; }
+    const destination = selectedImportDestination();
     const entries = files.map((file) => {
       const id = crypto.randomUUID();
-      return { pending: { id, file }, display: { id, name: file.name, status: "queued" as const } };
+      return { pending: { id, file, destination }, display: { id, name: file.name, destinationLabel: destination.label, status: "queued" as const } };
     });
     // Keep raw PDFs out of React state so each completed file can be garbage-collected.
     pendingUploads.current.push(...entries.map(({ pending }) => pending));
@@ -1392,9 +1620,15 @@ export default function Home() {
   const exportableLectures = lectures.filter((lecture) => lecture.slos.length > 0);
   const selectedExportCount = exportableLectures.filter((lecture) => selectedExportLectureIds.has(lecture.id)).length;
   const favoriteCount = lectures.filter((lecture) => lecture.favorite).length;
+  const totalQuestionCount = questionLectures.reduce((total, lecture) => total + lecture.questions.length, 0);
+  const selectedQuestionSourceCount = selectedQuestionLectureIds.size + selectedQuestionSlideKeys.size;
   const activeUpload = uploadQueue.find((job) => ["extracting", "analyzing", "saving"].includes(job.status));
   const nextUpload = uploadQueue.find((job) => job.status === "queued");
   const finishedUploads = uploadQueue.filter((job) => job.status === "done" || job.status === "error").length;
+  const currentImportDestination = selectedImportDestination();
+  const libraryLocationLabel = allLecturesSelected
+    ? "LECTURES"
+    : `${activeYear}${activeCourse === "All courses" ? "" : ` · ${activeCourse.toUpperCase()}`}${activeLecturer === ALL_LECTURERS ? "" : ` · ${lecturerFolderLabel(activeLecturer).toUpperCase()}`}`;
   const viewerMarkedSlides = viewerLecture?.markedSlides ?? [];
   const currentSlideIsMarked = viewerMarkedSlides.includes(selectedPage);
   const viewerPageInk = viewerLecture?.markups?.[selectedPage] ?? [];
@@ -1421,6 +1655,14 @@ export default function Home() {
     setActiveSloLecturer(ALL_LECTURERS);
     setSloTreeExpanded(!collapse);
     setView("slos");
+  }
+
+  function selectQuestionRoot() {
+    const collapse = view === "questions" && allQuestionsSelected && questionTreeExpanded;
+    setAllQuestionsSelected(true);
+    setActiveQuestionLecturer(ALL_LECTURERS);
+    setQuestionTreeExpanded(!collapse);
+    setView("questions");
   }
 
   async function submitCloudAuth(event: React.FormEvent<HTMLFormElement>) {
@@ -1480,7 +1722,7 @@ export default function Home() {
   if (cloudConfigured && !cloudSession) {
     return <main className="cloud-gate"><section className="cloud-auth-card">
       <strong className="cloud-wordmark">FCOM.lib</strong>
-      <div className="cloud-auth-heading"><small>PRIVATE CURRICULUM LIBRARY</small><h1>{authMode === "signin" ? "Sign in" : "Create your account"}</h1><p>Your lectures, annotations, SLOs, and concepts stay private to your account.</p></div>
+      <div className="cloud-auth-heading"><small>PRIVATE CURRICULUM LIBRARY</small><h1>{authMode === "signin" ? "Sign in" : "Create your account"}</h1><p>Your lectures, annotations, SLOs, questions, and concepts stay private to your account.</p></div>
       <form onSubmit={submitCloudAuth}>
         <label><span>Email</span><input type="email" autoComplete="email" value={authEmail} onChange={(event) => setAuthEmail(event.target.value)} required /></label>
         <label><span>Password</span><input type="password" minLength={6} autoComplete={authMode === "signin" ? "current-password" : "new-password"} value={authPassword} onChange={(event) => setAuthPassword(event.target.value)} required /></label>
@@ -1512,6 +1754,10 @@ export default function Home() {
             <button className={`nav-root ${view === "slos" && allSLOsSelected && !flaggedSLOsSelected ? "active" : ""}`} aria-expanded={sloTreeExpanded} onClick={selectSloRoot}><span className={`nav-caret ${sloTreeExpanded ? "expanded" : ""}`}>›</span><AppIcon name="target"/><strong>SLOs</strong></button>
             {sloTreeExpanded && <CurriculumTree lectures={lectures} academicYears={academicYears} coursesByYear={coursesByYear} expandedYear={expandedSloYear} expandedCourse={expandedSloCourse} selectedYear={activeSloYear} selectedCourse={activeSloCourse} selectedLecturer={activeSloLecturer} allSelected={allSLOsSelected} isCurrentSection={view === "slos"} showCounts={false} flaggedSelected={flaggedSLOsSelected} onSelectFlagged={() => { setAllSLOsSelected(false); setFlaggedSLOsSelected(true); setActiveSloLecturer(ALL_LECTURERS); setView("slos"); }} onSelectYear={(year) => { setAllSLOsSelected(false); setFlaggedSLOsSelected(false); setActiveSloYear(year); setActiveSloCourse("All courses"); setActiveSloLecturer(ALL_LECTURERS); setExpandedSloYear(year); setView("slos"); }} onSelectCourse={(year, course, courseKey) => { setAllSLOsSelected(false); setFlaggedSLOsSelected(false); setActiveSloYear(year); setActiveSloCourse(course); setActiveSloLecturer(ALL_LECTURERS); setExpandedSloCourse((current) => current === courseKey ? null : courseKey); setView("slos"); }} onSelectLecturer={(year, course, lecturer) => { setAllSLOsSelected(false); setFlaggedSLOsSelected(false); setActiveSloYear(year); setActiveSloCourse(course); setActiveSloLecturer(lecturer); setView("slos"); }} />}
           </section>
+          <section className="nav-section">
+            <button className={`nav-root ${view === "questions" && allQuestionsSelected ? "active" : ""}`} aria-expanded={questionTreeExpanded} onClick={selectQuestionRoot}><span className={`nav-caret ${questionTreeExpanded ? "expanded" : ""}`}>›</span><span className="nav-indent"/><strong>Question Bank</strong><b>{totalQuestionCount}</b></button>
+            {questionTreeExpanded && <CurriculumTree lectures={questionLectures} academicYears={questionAcademicYears} coursesByYear={questionCoursesByYear} expandedYear={expandedQuestionYear} expandedCourse={expandedQuestionCourse} selectedYear={activeQuestionYear} selectedCourse={activeQuestionCourse} selectedLecturer={activeQuestionLecturer} allSelected={allQuestionsSelected} isCurrentSection={view === "questions"} countItems={(items) => items.reduce((total, lecture) => total + lecture.questions.length, 0)} onSelectYear={(year) => { setAllQuestionsSelected(false); setActiveQuestionYear(year); setActiveQuestionCourse("All courses"); setActiveQuestionLecturer(ALL_LECTURERS); setExpandedQuestionYear(year); setView("questions"); }} onSelectCourse={(year, course, courseKey) => { setAllQuestionsSelected(false); setActiveQuestionYear(year); setActiveQuestionCourse(course); setActiveQuestionLecturer(ALL_LECTURERS); setExpandedQuestionCourse((current) => current === courseKey ? null : courseKey); setView("questions"); }} onSelectLecturer={(year, course, lecturer) => { setAllQuestionsSelected(false); setActiveQuestionYear(year); setActiveQuestionCourse(course); setActiveQuestionLecturer(lecturer); setView("questions"); }} />}
+          </section>
           <button className={`nav-link concept-bank-link ${view === "concepts" ? "active" : ""}`} onClick={() => setView("concepts")}><strong>Concept Bank</strong><b>{concepts.filter((concept) => !concept.archived).length}</b></button>
         </nav>
         <div className="side-bottom">{cloudSession ? <div className="cloud-account"><span><strong>Cloud library</strong><small>{cloudSession.user.email}</small>{migrationRunning && migrationProgress && <small>Syncing {migrationProgress.completed} of {migrationProgress.total}</small>}</span><div className="cloud-account-actions"><button type="button" disabled={migrationRunning} onClick={() => void migrateThisDevice()}>{migrationRunning ? "Syncing…" : "Sync this device"}</button><button type="button" onClick={downloadDiagnostics}>Diagnostics</button><button type="button" disabled={migrationRunning} onClick={() => void signOutCloud()}>Sign out</button></div></div> : <p><span><strong>Device library</strong><br/><small>Cloud connection not configured</small><button className="device-diagnostics" type="button" onClick={downloadDiagnostics}>Diagnostics</button></span></p>}</div>
@@ -1528,11 +1774,11 @@ export default function Home() {
         {notice && <div className="notice" role="status" aria-live="polite"><span>{notice}</span><button aria-label="Dismiss" onClick={() => setNotice("")}><AppIcon name="x"/></button></div>}
 
         {cloudSession && !cloudHasData && localReady && <section className="cloud-migration-banner" aria-label="Migrate local library">
-          <div><small>ONE-TIME CLOUD SETUP</small><strong>Move this device’s library into your private account</strong><p>This copies your lectures, PDFs, SLOs, notes, pre-reads, and concepts. The originals remain safely on this computer.</p>{migrationProgress && <span>{migrationProgress.completed} of {migrationProgress.total}: {migrationProgress.label}</span>}</div>
+          <div><small>ONE-TIME CLOUD SETUP</small><strong>Move this device’s library into your private account</strong><p>This copies your lectures, PDFs, SLOs, questions, notes, pre-reads, and concepts. The originals remain safely on this computer.</p>{migrationProgress && <span>{migrationProgress.completed} of {migrationProgress.total}: {migrationProgress.label}</span>}</div>
           <button type="button" disabled={migrationRunning} onClick={() => void migrateThisDevice()}>{migrationRunning ? "Migrating…" : "Migrate this device"}</button>
         </section>}
 
-        {queueVisible && uploadQueue.length > 0 && <aside className="upload-queue" aria-label="Lecture import queue"><header><div><small>IMPORT QUEUE</small><strong>{finishedUploads} of {uploadQueue.length} finished</strong></div><button aria-label="Hide import queue" onClick={() => setQueueVisible(false)}><AppIcon name="x"/></button></header><div className="queue-jobs">{uploadQueue.map((job) => <div className={`queue-job ${job.status}`} key={job.id}><span className="queue-indicator"/><div><strong>{job.name}</strong><small>{uploadStatusLabel[job.status]}{activeUpload?.id === job.id ? " · Current" : nextUpload?.id === job.id ? " · Next" : ""}</small>{job.error && <em>{job.error}</em>}</div></div>)}</div><footer><button disabled={uploading} onClick={() => setUploadQueue((current) => current.filter((job) => job.status !== "done" && job.status !== "error"))}>Clear finished</button></footer></aside>}
+        {queueVisible && uploadQueue.length > 0 && <aside className="upload-queue" aria-label="Lecture import queue"><header><div><small>IMPORT QUEUE</small><strong>{finishedUploads} of {uploadQueue.length} finished</strong></div><button aria-label="Hide import queue" onClick={() => setQueueVisible(false)}><AppIcon name="x"/></button></header><div className="queue-jobs">{uploadQueue.map((job) => <div className={`queue-job ${job.status}`} key={job.id}><span className="queue-indicator"/><div><strong>{job.name}</strong><small>{uploadStatusLabel[job.status]}{activeUpload?.id === job.id ? " · Current" : nextUpload?.id === job.id ? " · Next" : ""}</small><small className="queue-destination">{job.destinationLabel}</small>{job.error && <em>{job.error}</em>}</div></div>)}</div><footer><button disabled={uploading} onClick={() => setUploadQueue((current) => current.filter((job) => job.status !== "done" && job.status !== "error"))}>Clear finished</button></footer></aside>}
 
         {view === "home" && <section className="full-page home-page">
           <div className="page-toolbar"><div className="eyebrow">FLAGGED SLOS</div></div>
@@ -1544,7 +1790,10 @@ export default function Home() {
 
         {(view === "library" || view === "favorites") && <div className={`content-grid ${displayActive ? "" : "single-column"}`}>
           <section className="library-panel">
-            <div className="page-toolbar"><div className="eyebrow">{view === "favorites" ? "SAVED LECTURES" : allLecturesSelected ? "LECTURES" : `${activeYear} · ${activeCourse.toUpperCase()}${activeLecturer === ALL_LECTURERS ? "" : ` · ${lecturerFolderLabel(activeLecturer).toUpperCase()}`}`}</div><label className="sort-control"><span>Sort by</span><select value={lectureSort} onChange={(event) => setLectureSort(event.target.value as "date-desc" | "name-asc")}><option value="date-desc">Date · newest first</option><option value="name-asc">Name · A–Z</option></select></label></div>
+            <div className="page-toolbar"><div className="eyebrow">{view === "favorites" ? "SAVED LECTURES" : libraryLocationLabel}</div><label className="sort-control"><span>Sort by</span><select value={lectureSort} onChange={(event) => setLectureSort(event.target.value as "date-desc" | "name-asc")}><option value="date-desc">Date · newest first</option><option value="name-asc">Name · A–Z</option></select></label></div>
+            {view === "library" && <button className={`dropzone top-dropzone ${dragging ? "dragging" : ""}`} onClick={() => fileInput.current?.click()} onDragOver={(e) => { e.preventDefault(); setDragging(true); }} onDragLeave={() => setDragging(false)} onDrop={(e) => { e.preventDefault(); setDragging(false); if (e.dataTransfer.files.length) enqueueFiles(e.dataTransfer.files); }}>
+              <span><AppIcon name="upload"/></span><strong>Drop one or more lectures here</strong><small>PDF · Import to {currentImportDestination.label}</small>
+            </button>}
             <div className="lecture-list">
               {visibleLectures.map((lecture) => <article key={lecture.id} className={`lecture-card ${displayActive?.id === lecture.id ? "selected" : ""}`}>
                 <button className="lecture-open" onClick={() => setActiveId(lecture.id)}>
@@ -1557,9 +1806,6 @@ export default function Home() {
                 <span className="lecture-actions"><button className={lecture.favorite ? "favorited" : ""} aria-label={lecture.favorite ? "Remove from favorites" : "Add to favorites"} title={lecture.favorite ? "Remove from favorites" : "Add to favorites"} onClick={() => toggleFavorite(lecture.id)}><AppIcon name="star"/></button><button className="remove-action" aria-label="Remove lecture" title="Remove lecture" onClick={() => removeLecture(lecture.id)}><AppIcon name="trash"/></button></span>
               </article>)}
               {visibleLectures.length === 0 && <div className="library-empty"><AppIcon name={view === "favorites" ? "star" : "folder"}/><strong>{view === "favorites" ? "No favorite lectures yet" : "This folder is empty"}</strong><span>{view === "favorites" ? "Use the star on any lecture to keep it here." : "Add a PDF to this academic year and course."}</span></div>}
-              {view === "library" && <button className={`dropzone ${dragging ? "dragging" : ""}`} onClick={() => fileInput.current?.click()} onDragOver={(e) => { e.preventDefault(); setDragging(true); }} onDragLeave={() => setDragging(false)} onDrop={(e) => { e.preventDefault(); setDragging(false); if (e.dataTransfer.files.length) enqueueFiles(e.dataTransfer.files); }}>
-                <span><AppIcon name="upload"/></span><strong>Drop one or more lectures here</strong><small>PDF · Lectures are processed one at a time</small>
-              </button>}
             </div>
           </section>
 
@@ -1571,7 +1817,7 @@ export default function Home() {
               {lecturerChoice === NEW_LECTURER && <label><span>New lecturer</span><input value={newLecturerDraft} onChange={(event) => setNewLecturerDraft(event.target.value)} placeholder="Name and credentials" /></label>}
               <label><span>Lecture date</span><input type="date" value={dateDraft} onChange={(event) => setDateDraft(event.target.value)} /></label>
               <div><button onClick={() => setEditingMetadataId("")}>Cancel</button><button className="save-metadata" onClick={() => saveLectureMetadata(displayActive)}>Save details</button></div>
-            </div> : <div className="lecture-details"><span><small>Course</small>{displayActive.academicYear} / {displayActive.course}</span><span><small>Lecturer</small>{displayActive.lecturer}</span><span><small>Date</small>{displayActive.date}</span><button onClick={() => startMetadataEdit(displayActive)}>Edit details</button></div>}
+            </div> : <div className="lecture-details"><span><small>Course</small>{displayActive.academicYear} / {displayActive.course}</span><span><small>Lecturer</small>{displayActive.lecturer}</span><span><small>Date</small>{displayActive.date}</span><button onClick={() => startMetadataEdit(displayActive)}>Edit details</button><button onClick={() => openQuestionBuilder(displayActive.id)}>Draft questions</button></div>}
             <div className="section-head"><h3>Session learning objectives</h3><button onClick={() => { setAllSLOsSelected(false); setFlaggedSLOsSelected(false); setActiveSloYear(displayActive.academicYear); setActiveSloCourse(displayActive.course); setActiveSloLecturer(ALL_LECTURERS); setExpandedSloYear(displayActive.academicYear); setExpandedSloCourse(`${displayActive.academicYear}::${displayActive.course}`); setSloTreeExpanded(true); setView("slos"); }}>View course SLOs</button></div>
             <ol className="slo-preview">{displayActive.slos.map((slo, index) => <li key={slo}><span>{index + 1}</span><p>{slo}</p></li>)}</ol>
             {displayActive.outline.length > 0 && <><div className="section-head"><h3>Session outline</h3></div><ol className="outline-list">{displayActive.outline.map((section, index) => <li key={section}><span>{index + 1}</span><p>{section}</p></li>)}</ol></>}
@@ -1634,6 +1880,27 @@ export default function Home() {
           {visibleSloLectures.length === 0 && <div className="empty-state"><AppIcon name="target"/><strong>{flaggedSLOsSelected ? "No flagged SLOs yet" : "No SLOs in this folder yet"}</strong><span>{flaggedSLOsSelected ? "Use the flag beside any SLO to keep it here for review." : "Upload a lecture or choose another folder from the SLO tree."}</span></div>}
         </section>}
 
+        {view === "questions" && <section className="full-page question-bank-page">
+          <div className="page-toolbar"><div>{allQuestionsSelected ? <div className="eyebrow">QUESTION BANK</div> : <nav className="slo-breadcrumbs" aria-label="Question bank folders">
+            <button onClick={() => { setActiveQuestionCourse("All courses"); setActiveQuestionLecturer(ALL_LECTURERS); setExpandedQuestionYear(activeQuestionYear); }}>{activeQuestionYear}</button>
+            {activeQuestionCourse !== "All courses" && <><span>·</span><button onClick={() => setActiveQuestionLecturer(ALL_LECTURERS)}>{activeQuestionCourse}</button></>}
+            {activeQuestionLecturer !== ALL_LECTURERS && <><span>·</span><button>{lecturerFolderLabel(activeQuestionLecturer)}</button></>}
+          </nav>}</div><button className="question-draft-trigger" onClick={() => openQuestionBuilder()}>Draft with Luna</button></div>
+          {visibleQuestionLectures.length > 0 ? <div className="question-groups">{visibleQuestionLectures.map((lecture) => <article className="question-lecture-group" key={lecture.id}>
+            <header><div><small>{lecture.academicYear} · {lecture.course} · {lecturerFolderLabel(lecture.lecturer)}</small><h2>{lecture.title}</h2></div><button onClick={() => openQuestionBuilder(lecture.id)}>Draft more</button></header>
+            <div className="question-list">{lecture.questions.map((question, index) => {
+              const revealed = revealedQuestionIds.has(question.id);
+              return <article className="bank-question" key={question.id}>
+                <div className="question-meta"><span>Q{index + 1}</span><small>{question.type === "multiple-choice" ? "Multiple choice" : "Short answer"}</small><div>{question.sourcePages.map((page) => <button key={page} onClick={() => openLectureBrief(lecture.id, page)}>Page {page}</button>)}</div></div>
+                <h3>{question.prompt}</h3>
+                {question.type === "multiple-choice" && <ol className="question-options" type="A">{question.options.map((option) => <li key={option}>{option}</li>)}</ol>}
+                {revealed && <div className="question-answer"><strong>Answer</strong><p>{question.answer}</p>{question.explanation && <><strong>Explanation</strong><p>{question.explanation}</p></>}</div>}
+                <footer><button onClick={() => setRevealedQuestionIds((current) => { const next = new Set(current); if (revealed) next.delete(question.id); else next.add(question.id); return next; })}>{revealed ? "Hide answer" : "Show answer"}</button><button className="remove-question" onClick={() => void removeQuestion(lecture.id, question.id)}>Remove</button></footer>
+              </article>;
+            })}</div>
+          </article>)}</div> : <div className="home-empty"><strong>No approved questions here yet</strong><span>Select lectures or individual slides and ask Luna to draft the first set.</span><button onClick={() => openQuestionBuilder()}>Draft questions</button></div>}
+        </section>}
+
         {view === "concepts" && <section className="full-page concept-bank-page">
           <div className="page-toolbar concept-bank-toolbar"><div className="eyebrow">CONCEPT BANK</div><div className="concept-filter" aria-label="Concept bank view"><button className={conceptFilter === "active" ? "active" : ""} onClick={() => setConceptFilter("active")}>Current</button><button className={conceptFilter === "archived" ? "active" : ""} onClick={() => setConceptFilter("archived")}>Archived</button></div></div>
           {visibleConcepts.length > 0 ? <div className="concept-bank-list">{visibleConcepts.map((concept) => {
@@ -1641,6 +1908,60 @@ export default function Home() {
             return <article className="concept-bank-card" key={concept.id}><button className="concept-source" onClick={() => openConceptSource(concept)} disabled={!lecture}><strong>{concept.text}</strong><small>{lecture ? `${lecture.title} · PDF page ${concept.page}` : `Source lecture unavailable · PDF page ${concept.page}`}</small></button><button className="concept-archive" onClick={() => setConceptArchived(concept, conceptFilter === "active")}>{conceptFilter === "active" ? "Archive" : "Restore"}</button></article>;
           })}</div> : <div className="home-empty"><strong>{conceptFilter === "active" ? "No concepts saved yet" : "No archived concepts"}</strong><span>{conceptFilter === "active" ? "Highlight text in a lecture PDF and add it to your concept bank." : "Archived concepts will remain available here."}</span></div>}
         </section>}
+
+        {questionBuilderOpen && <div className="export-backdrop question-builder-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !questionGenerating) setQuestionBuilderOpen(false); }}>
+          <section className="question-builder-modal" role="dialog" aria-modal="true" aria-labelledby="question-builder-title">
+            <header><div><small>LUNA QUESTION DRAFTING</small><h2 id="question-builder-title">{questionDrafts ? "Review Luna’s questions" : "Choose source material"}</h2><p>{questionDrafts ? "Edit, approve, or reject each draft before anything enters your bank." : "Select entire lectures, multiple lectures, or individual slides."}</p></div><button className="icon-button" aria-label="Close question builder" disabled={questionGenerating} onClick={() => setQuestionBuilderOpen(false)}><AppIcon name="x"/></button></header>
+            {!questionDrafts ? <>
+              <div className="question-builder-options">
+                <label><span>Number of questions</span><input type="number" min="1" max="20" value={questionCount} onChange={(event) => setQuestionCount(Math.min(20, Math.max(1, Number(event.target.value) || 1)))}/></label>
+                <label className="question-direction"><span>Optional direction for Luna</span><textarea maxLength={2000} value={questionInstruction} onChange={(event) => setQuestionInstruction(event.target.value)} placeholder="For example: Focus on mechanisms and application questions; mostly multiple choice."/></label>
+              </div>
+              <div className="question-source-toolbar"><span><strong>{selectedQuestionSourceCount}</strong> source selection{selectedQuestionSourceCount === 1 ? "" : "s"}</span><div><button onClick={() => setQuestionLectureSelection(lectures.map((lecture) => lecture.id), true)}>Select all lectures</button><button onClick={() => { setSelectedQuestionLectureIds(new Set()); setSelectedQuestionSlideKeys(new Set()); }}>Clear</button></div></div>
+              <div className="question-source-tree">{academicYears.map((year) => {
+                const yearLectures = lectures.filter((lecture) => lecture.academicYear === year);
+                if (!yearLectures.length) return null;
+                return <section key={year}><h3>{year}</h3>{(coursesByYear[year] ?? []).map((course) => {
+                  const courseLectures = yearLectures.filter((lecture) => lecture.course === course);
+                  const courseIds = courseLectures.map((lecture) => lecture.id);
+                  const courseSelected = courseIds.length > 0 && courseIds.every((id) => selectedQuestionLectureIds.has(id));
+                  return <div className="question-source-course" key={course}>
+                    <label className="question-source-course-head"><input type="checkbox" checked={courseSelected} onChange={() => setQuestionLectureSelection(courseIds, !courseSelected)}/><strong>{course}</strong><span>{courseLectures.length} lectures</span></label>
+                    <div>{courseLectures.map((lecture) => {
+                      const wholeLectureSelected = selectedQuestionLectureIds.has(lecture.id);
+                      const expanded = expandedQuestionSourceIds.has(lecture.id);
+                      const selectedSlideCount = lecture.slides.filter((slide) => selectedQuestionSlideKeys.has(questionSlideKey(lecture.id, slide.page))).length;
+                      return <section className="question-source-lecture" key={lecture.id}>
+                        <div><label><input type="checkbox" checked={wholeLectureSelected} onChange={(event) => setQuestionLectureSelection([lecture.id], event.target.checked)}/><span><strong>{lecture.title}</strong><small>{lecturerFolderLabel(lecture.lecturer)} · {lecture.slides.length} indexed slides{selectedSlideCount ? ` · ${selectedSlideCount} selected` : ""}</small></span></label><button aria-expanded={expanded} onClick={() => setExpandedQuestionSourceIds((current) => { const next = new Set(current); if (expanded) next.delete(lecture.id); else next.add(lecture.id); return next; })}>{expanded ? "Hide slides" : "Choose slides"}</button></div>
+                        {expanded && <div className="question-slide-selection">{lecture.slides.map((slide) => {
+                          const checked = wholeLectureSelected || selectedQuestionSlideKeys.has(questionSlideKey(lecture.id, slide.page));
+                          return <label key={slide.page}><input type="checkbox" checked={checked} onChange={(event) => toggleQuestionSlide(lecture.id, slide.page, event.target.checked)}/><span><strong>Page {slide.page}</strong><small>{slide.heading || `Slide ${slide.page}`}</small></span></label>;
+                        })}</div>}
+                      </section>;
+                    })}</div>
+                  </div>;
+                })}</section>;
+              })}</div>
+              <footer><button disabled={questionGenerating} onClick={() => setQuestionBuilderOpen(false)}>Cancel</button><button className="question-generate-confirm" disabled={questionGenerating || selectedQuestionSourceCount === 0} onClick={() => void generateQuestionDrafts()}>{questionGenerating ? "Luna is drafting…" : `Draft ${questionCount} questions`}</button></footer>
+            </> : <>
+              <div className="question-review-toolbar"><span><strong>{questionDrafts.filter((draft) => draft.approved).length}</strong> of {questionDrafts.length} approved</span><div><button onClick={() => setQuestionDrafts((current) => current?.map((draft) => ({ ...draft, approved: true })) ?? null)}>Approve all</button><button onClick={() => setQuestionDrafts((current) => current?.map((draft) => ({ ...draft, approved: false })) ?? null)}>Reject all</button></div></div>
+              <div className="question-draft-list">{questionDrafts.map((draft, index) => {
+                const sourceLecture = lectures.find((lecture) => lecture.id === draft.sourceLectureId);
+                return <article className={`question-draft-card ${draft.approved ? "approved" : ""}`} key={draft.id}>
+                  <header><label><input type="checkbox" checked={draft.approved} onChange={(event) => updateQuestionDraft(draft.id, { approved: event.target.checked })}/><span>{draft.approved ? "Approved" : "Not approved"}</span></label><small>{sourceLecture?.title ?? "Unknown lecture"} · {draft.sourcePages.map((page) => `p.${page}`).join(", ")}</small><button aria-label={`Remove draft question ${index + 1}`} onClick={() => setQuestionDrafts((current) => current?.filter((item) => item.id !== draft.id) ?? null)}><AppIcon name="trash"/></button></header>
+                  <div className="question-draft-fields">
+                    <label><span>Question type</span><select value={draft.type} onChange={(event) => updateQuestionDraft(draft.id, { type: event.target.value as QuestionType, options: event.target.value === "short-answer" ? [] : draft.options.length ? draft.options : ["", "", "", ""] })}><option value="multiple-choice">Multiple choice</option><option value="short-answer">Short answer</option></select></label>
+                    <label><span>Question</span><textarea value={draft.prompt} onChange={(event) => updateQuestionDraft(draft.id, { prompt: event.target.value })}/></label>
+                    {draft.type === "multiple-choice" && <div className="draft-options"><span>Answer choices</span>{draft.options.map((option, optionIndex) => <input key={optionIndex} aria-label={`Answer choice ${optionIndex + 1}`} value={option} onChange={(event) => updateQuestionDraft(draft.id, { options: draft.options.map((item, index) => index === optionIndex ? event.target.value : item) })}/>)}</div>}
+                    <label><span>Correct answer</span><textarea value={draft.answer} onChange={(event) => updateQuestionDraft(draft.id, { answer: event.target.value })}/></label>
+                    <label><span>Explanation</span><textarea value={draft.explanation} onChange={(event) => updateQuestionDraft(draft.id, { explanation: event.target.value })}/></label>
+                  </div>
+                </article>;
+              })}</div>
+              <footer><button onClick={() => setQuestionDrafts(null)}>Back to sources</button><button onClick={() => setQuestionBuilderOpen(false)}>Discard drafts</button><button className="question-generate-confirm" disabled={!questionDrafts.some((draft) => draft.approved && draft.prompt.trim() && draft.answer.trim())} onClick={() => void approveQuestionDrafts()}>Add approved to bank</button></footer>
+            </>}
+          </section>
+        </div>}
 
         {sloReparseLecture && <div className="export-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !sloReparseLoading) setSloReparseLectureId(""); }}>
           <section className="slo-reparse-modal" role="dialog" aria-modal="true" aria-labelledby="slo-reparse-title">
@@ -1720,7 +2041,7 @@ export default function Home() {
 
         {viewerLecture && <div className="viewer-modal" role="dialog" aria-modal="true" aria-label="Lecture slide viewer">
           <section className="viewer-stage">
-            <header className="viewer-toolbar"><div><small>{viewerLecture.title}</small><strong>PDF page {selectedPage} of {viewerLecture.pages}</strong></div><div className="viewer-controls"><button disabled={selectedPage <= 1} onClick={() => selectViewerPage(selectedPage - 1)}>Previous</button><label className="page-jump"><span>Page</span><input aria-label="PDF page number" type="number" min="1" max={viewerLecture.pages} value={selectedPage} onChange={(event) => selectViewerPage(Number(event.target.value) || 1)} /></label><button disabled={selectedPage >= viewerLecture.pages} onClick={() => selectViewerPage(selectedPage + 1)}>Next</button><button className={`pen-toggle ${penEnabled ? "active" : ""}`} aria-pressed={penEnabled} onClick={() => { setPenEnabled((current) => !current); setSelectedPdfText(""); window.getSelection()?.removeAllRanges(); }}>{penEnabled ? "Pen on" : "Pen"}</button>{viewerPageInk.length > 0 && <button onClick={() => saveCurrentInk(viewerPageInk.slice(0, -1))}>Undo ink</button>}<button className={`mark-slide ${currentSlideIsMarked ? "marked" : ""}`} aria-pressed={currentSlideIsMarked} onClick={toggleCurrentSlideMark}><AppIcon name="bookmark"/>{currentSlideIsMarked ? "Marked" : "Mark slide"}</button></div></header>
+            <header className="viewer-toolbar"><div><small>{viewerLecture.title}</small><strong>PDF page {selectedPage} of {viewerLecture.pages}</strong></div><div className="viewer-controls"><button disabled={selectedPage <= 1} onClick={() => selectViewerPage(selectedPage - 1)}>Previous</button><label className="page-jump"><span>Page</span><input aria-label="PDF page number" type="number" min="1" max={viewerLecture.pages} value={selectedPage} onChange={(event) => selectViewerPage(Number(event.target.value) || 1)} /></label><button disabled={selectedPage >= viewerLecture.pages} onClick={() => selectViewerPage(selectedPage + 1)}>Next</button><button onClick={() => openQuestionBuilder(viewerLecture.id, selectedPage)}>Draft question</button><button className={`pen-toggle ${penEnabled ? "active" : ""}`} aria-pressed={penEnabled} onClick={() => { setPenEnabled((current) => !current); setSelectedPdfText(""); window.getSelection()?.removeAllRanges(); }}>{penEnabled ? "Pen on" : "Pen"}</button>{viewerPageInk.length > 0 && <button onClick={() => saveCurrentInk(viewerPageInk.slice(0, -1))}>Undo ink</button>}<button className={`mark-slide ${currentSlideIsMarked ? "marked" : ""}`} aria-pressed={currentSlideIsMarked} onClick={toggleCurrentSlideMark}><AppIcon name="bookmark"/>{currentSlideIsMarked ? "Marked" : "Mark slide"}</button></div></header>
             {viewerFile && viewerFileLectureId === viewerLecture.id ? <PdfCanvasViewer key={viewerLecture.id} file={viewerFile} lectureId={viewerLecture.id} page={selectedPage} selectedText={selectedPdfText} bankedConceptTexts={viewerPageConceptTexts} inkStrokes={viewerPageInk} penEnabled={penEnabled} onSelectionChange={setSelectedPdfText} onAddConcept={addSelectedConcept} onInkChange={saveCurrentInk} /> : <div className="slide-fallback"><span className="result-page">{selectedSlide.page}</span><h2>{selectedSlide.heading}</h2><p>{selectedSlide.text || "Loading the selected lecture…"}</p><small>Uploaded PDFs are stored locally and displayed page-for-page here.</small></div>}
           </section>
           <aside className="ai-panel"><div className="ai-panel-head"><h2>Ask about this slide</h2><button className="ai-close" aria-label="Close lecture viewer" onClick={() => setViewerLectureId("")}><AppIcon name="x"/></button></div>

@@ -3,6 +3,17 @@ import { supabase } from "./supabase-client";
 export type Slide = { page: number; text: string; heading: string };
 export type InkPoint = { x: number; y: number };
 export type InkStroke = { id: string; points: InkPoint[] };
+export type QuestionType = "multiple-choice" | "short-answer";
+export type QuestionRecord = {
+  id: string;
+  type: QuestionType;
+  prompt: string;
+  options: string[];
+  answer: string;
+  explanation: string;
+  sourcePages: number[];
+  createdAt: string;
+};
 
 export type Lecture = {
   id: string;
@@ -22,6 +33,7 @@ export type Lecture = {
   markups: Record<number, InkStroke[]>;
   markedSlides: number[];
   flaggedSLOs: number[];
+  questions: QuestionRecord[];
   fileName?: string;
   createdAt: string;
 };
@@ -162,6 +174,33 @@ function normalizeMarkups(value: unknown): Record<number, InkStroke[]> {
   return Object.fromEntries(entries);
 }
 
+function normalizeQuestions(value: unknown): QuestionRecord[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((item) => {
+    if (!item || typeof item !== "object") return [];
+    const record = item as Record<string, unknown>;
+    const id = textValue(record.id);
+    const prompt = textValue(record.prompt);
+    const answer = textValue(record.answer);
+    if (!id || !prompt || !answer) return [];
+    const type: QuestionType = record.type === "multiple-choice" ? "multiple-choice" : "short-answer";
+    const options = type === "multiple-choice" ? textList(record.options).slice(0, 6) : [];
+    const sourcePages = Array.isArray(record.sourcePages)
+      ? Array.from(new Set(record.sourcePages.filter((page): page is number => typeof page === "number" && Number.isInteger(page) && page > 0))).sort((a, b) => a - b)
+      : [];
+    return [{
+      id,
+      type,
+      prompt,
+      options,
+      answer,
+      explanation: textValue(record.explanation),
+      sourcePages,
+      createdAt: textValue(record.createdAt, new Date().toISOString()),
+    }];
+  });
+}
+
 export function normalizeLecture(value: unknown): Lecture | null {
   if (!value || typeof value !== "object") return null;
   const lecture = value as Record<string, unknown>;
@@ -194,6 +233,7 @@ export function normalizeLecture(value: unknown): Lecture | null {
     markups: normalizeMarkups(lecture.markups),
     markedSlides,
     flaggedSLOs,
+    questions: normalizeQuestions(lecture.questions),
     fileName: typeof lecture.fileName === "string" ? lecture.fileName : undefined,
     createdAt: textValue(lecture.createdAt, new Date(0).toISOString()),
   };
