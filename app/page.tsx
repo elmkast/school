@@ -244,6 +244,33 @@ type QuestionDraft = {
   approved: boolean;
 };
 
+type QuizQuestion = {
+  key: string;
+  lectureId: string;
+  lectureTitle: string;
+  lecturer: string;
+  question: QuestionRecord;
+};
+
+type QuizResponse = {
+  response: string;
+  submitted: boolean;
+  correct: boolean | null;
+};
+
+type QuizMode = "taking" | "results" | "review";
+
+function shuffleItems<T>(items: T[]) {
+  const shuffled = [...items];
+  for (let index = shuffled.length - 1; index > 0; index -= 1) {
+    const random = new Uint32Array(1);
+    crypto.getRandomValues(random);
+    const target = random[0] % (index + 1);
+    [shuffled[index], shuffled[target]] = [shuffled[target], shuffled[index]];
+  }
+  return shuffled;
+}
+
 function searchMatchScore(needle: string, title: string, body: string) {
   const normalizedTitle = title.toLowerCase();
   const normalizedBody = body.toLowerCase();
@@ -647,6 +674,15 @@ export default function Home() {
   const [questionDrafts, setQuestionDrafts] = useState<QuestionDraft[] | null>(null);
   const [questionGenerating, setQuestionGenerating] = useState(false);
   const [revealedQuestionIds, setRevealedQuestionIds] = useState<Set<string>>(new Set());
+  const [expandedQuestionBankLectureIds, setExpandedQuestionBankLectureIds] = useState<Set<string>>(new Set());
+  const [quizBuilderOpen, setQuizBuilderOpen] = useState(false);
+  const [selectedQuizLectureIds, setSelectedQuizLectureIds] = useState<Set<string>>(new Set());
+  const [quizQuestionCount, setQuizQuestionCount] = useState(10);
+  const [quizQuestions, setQuizQuestions] = useState<QuizQuestion[]>([]);
+  const [quizResponses, setQuizResponses] = useState<Record<string, QuizResponse>>({});
+  const [quizIndex, setQuizIndex] = useState(0);
+  const [quizMode, setQuizMode] = useState<QuizMode>("taking");
+  const [quizReviewIndex, setQuizReviewIndex] = useState(0);
   const [sloExportOpen, setSloExportOpen] = useState(false);
   const [selectedExportLectureIds, setSelectedExportLectureIds] = useState<Set<string>>(new Set());
   const [sloExportFormat, setSloExportFormat] = useState<"pdf" | "excel">("pdf");
@@ -891,6 +927,12 @@ export default function Home() {
     window.addEventListener("keydown", handleKey);
     return () => window.removeEventListener("keydown", handleKey);
   }, [questionBuilderOpen, questionGenerating]);
+  useEffect(() => {
+    if (!quizBuilderOpen) return;
+    const handleKey = (event: KeyboardEvent) => { if (event.key === "Escape") setQuizBuilderOpen(false); };
+    window.addEventListener("keydown", handleKey);
+    return () => window.removeEventListener("keydown", handleKey);
+  }, [quizBuilderOpen]);
   useEffect(() => {
     if (!notice) return;
     const timeout = window.setTimeout(() => setNotice(""), 4500);
@@ -1211,6 +1253,93 @@ export default function Home() {
     setLectures((current) => current.map((item) => item.id === lectureId ? updated : item));
     await saveLecture(updated);
     setNotice("Question removed.");
+  }
+
+  function openQuizBuilder() {
+    const defaults = visibleQuestionLectures.length ? visibleQuestionLectures : questionLectures;
+    const ids = new Set(defaults.map((lecture) => lecture.id));
+    const available = defaults.reduce((total, lecture) => total + lecture.questions.length, 0);
+    setSelectedQuizLectureIds(ids);
+    setQuizQuestionCount(Math.min(10, Math.max(1, available)));
+    setQuizBuilderOpen(true);
+  }
+
+  function setQuizLectureSelection(ids: string[], selected: boolean) {
+    setSelectedQuizLectureIds((current) => {
+      const next = new Set(current);
+      ids.forEach((id) => selected ? next.add(id) : next.delete(id));
+      return next;
+    });
+  }
+
+  function startQuiz() {
+    const pool = questionLectures
+      .filter((lecture) => selectedQuizLectureIds.has(lecture.id))
+      .flatMap((lecture) => lecture.questions.map<QuizQuestion>((question) => ({
+        key: `${lecture.id}::${question.id}`,
+        lectureId: lecture.id,
+        lectureTitle: lecture.title,
+        lecturer: lecture.lecturer,
+        question: {
+          ...question,
+          options: question.type === "multiple-choice" ? shuffleItems(question.options) : [],
+        },
+      })));
+    if (!pool.length) { setNotice("Select at least one lecture with approved questions."); return; }
+    const count = Math.min(100, Math.max(1, quizQuestionCount), pool.length);
+    setQuizQuestions(shuffleItems(pool).slice(0, count));
+    setQuizResponses({});
+    setQuizIndex(0);
+    setQuizMode("taking");
+    setQuizReviewIndex(0);
+    setQuizBuilderOpen(false);
+  }
+
+  function setCurrentQuizResponse(response: string) {
+    const current = quizQuestions[quizIndex];
+    if (!current || quizResponses[current.key]?.submitted) return;
+    setQuizResponses((responses) => ({
+      ...responses,
+      [current.key]: { response, submitted: false, correct: null },
+    }));
+  }
+
+  function submitQuizAnswer() {
+    const current = quizQuestions[quizIndex];
+    if (!current) return;
+    const response = quizResponses[current.key]?.response.trim() ?? "";
+    if (!response) return;
+    const correct = current.question.type === "multiple-choice" ? response === current.question.answer : null;
+    setQuizResponses((responses) => ({
+      ...responses,
+      [current.key]: { response, submitted: true, correct },
+    }));
+  }
+
+  function gradeShortAnswer(correct: boolean) {
+    const current = quizQuestions[quizIndex];
+    const response = current ? quizResponses[current.key] : undefined;
+    if (!current || current.question.type !== "short-answer" || !response?.submitted) return;
+    setQuizResponses((responses) => ({ ...responses, [current.key]: { ...response, correct } }));
+  }
+
+  function advanceQuiz() {
+    if (quizIndex >= quizQuestions.length - 1) setQuizMode("results");
+    else setQuizIndex((index) => index + 1);
+  }
+
+  function finishQuiz() {
+    setQuizQuestions([]);
+    setQuizResponses({});
+    setQuizIndex(0);
+    setQuizMode("taking");
+    setQuizReviewIndex(0);
+  }
+
+  function exitQuiz() {
+    const answered = Object.values(quizResponses).filter((response) => response.submitted).length;
+    if (quizMode === "taking" && answered < quizQuestions.length && !window.confirm("End this quiz? Your current attempt is not saved.")) return;
+    finishQuiz();
   }
 
   function openSloExport() {
@@ -1622,6 +1751,16 @@ export default function Home() {
   const favoriteCount = lectures.filter((lecture) => lecture.favorite).length;
   const totalQuestionCount = questionLectures.reduce((total, lecture) => total + lecture.questions.length, 0);
   const selectedQuestionSourceCount = selectedQuestionLectureIds.size + selectedQuestionSlideKeys.size;
+  const selectedQuizQuestionCount = questionLectures.filter((lecture) => selectedQuizLectureIds.has(lecture.id)).reduce((total, lecture) => total + lecture.questions.length, 0);
+  const quizQuestionLimit = Math.min(100, selectedQuizQuestionCount);
+  const effectiveQuizQuestionCount = quizQuestionLimit > 0 ? Math.min(Math.max(1, quizQuestionCount), quizQuestionLimit) : 0;
+  const currentQuizQuestion = quizQuestions[quizIndex];
+  const currentQuizResponse = currentQuizQuestion ? quizResponses[currentQuizQuestion.key] ?? { response: "", submitted: false, correct: null } : null;
+  const quizCorrectCount = quizQuestions.filter((question) => quizResponses[question.key]?.correct === true).length;
+  const incorrectQuizQuestions = quizQuestions.filter((question) => quizResponses[question.key]?.correct === false);
+  const quizPercent = quizQuestions.length ? Math.round((quizCorrectCount / quizQuestions.length) * 100) : 0;
+  const reviewQuizQuestion = incorrectQuizQuestions[quizReviewIndex];
+  const reviewQuizResponse = reviewQuizQuestion ? quizResponses[reviewQuizQuestion.key] : undefined;
   const activeUpload = uploadQueue.find((job) => ["extracting", "analyzing", "saving"].includes(job.status));
   const nextUpload = uploadQueue.find((job) => job.status === "queued");
   const finishedUploads = uploadQueue.filter((job) => job.status === "done" || job.status === "error").length;
@@ -1885,10 +2024,12 @@ export default function Home() {
             <button onClick={() => { setActiveQuestionCourse("All courses"); setActiveQuestionLecturer(ALL_LECTURERS); setExpandedQuestionYear(activeQuestionYear); }}>{activeQuestionYear}</button>
             {activeQuestionCourse !== "All courses" && <><span>·</span><button onClick={() => setActiveQuestionLecturer(ALL_LECTURERS)}>{activeQuestionCourse}</button></>}
             {activeQuestionLecturer !== ALL_LECTURERS && <><span>·</span><button>{lecturerFolderLabel(activeQuestionLecturer)}</button></>}
-          </nav>}</div><button className="question-draft-trigger" onClick={() => openQuestionBuilder()}>Draft with Luna</button></div>
-          {visibleQuestionLectures.length > 0 ? <div className="question-groups">{visibleQuestionLectures.map((lecture) => <article className="question-lecture-group" key={lecture.id}>
-            <header><div><small>{lecture.academicYear} · {lecture.course} · {lecturerFolderLabel(lecture.lecturer)}</small><h2>{lecture.title}</h2></div><button onClick={() => openQuestionBuilder(lecture.id)}>Draft more</button></header>
-            <div className="question-list">{lecture.questions.map((question, index) => {
+          </nav>}</div><div className="question-bank-actions"><button className="take-quiz-trigger" disabled={totalQuestionCount === 0} onClick={openQuizBuilder}>Take quiz</button><button className="question-draft-trigger" onClick={() => openQuestionBuilder()}>Draft with Luna</button></div></div>
+          {visibleQuestionLectures.length > 0 ? <div className="question-groups">{visibleQuestionLectures.map((lecture) => {
+            const expanded = expandedQuestionBankLectureIds.has(lecture.id);
+            return <article className="question-lecture-group" key={lecture.id}>
+            <header><div><small>{lecture.academicYear} · {lecture.course} · {lecturerFolderLabel(lecture.lecturer)}</small><h2>{lecture.title}</h2></div><div className="question-lecture-actions"><span>{lecture.questions.length} question{lecture.questions.length === 1 ? "" : "s"}</span><button onClick={() => setExpandedQuestionBankLectureIds((current) => { const next = new Set(current); if (expanded) next.delete(lecture.id); else next.add(lecture.id); return next; })}>{expanded ? "Hide questions" : "View questions"}</button><button className="draft-more" onClick={() => openQuestionBuilder(lecture.id)}>Draft more</button></div></header>
+            {expanded && <div className="question-list">{lecture.questions.map((question, index) => {
               const revealed = revealedQuestionIds.has(question.id);
               return <article className="bank-question" key={question.id}>
                 <div className="question-meta"><span>Q{index + 1}</span><small>{question.type === "multiple-choice" ? "Multiple choice" : "Short answer"}</small><div>{question.sourcePages.map((page) => <button key={page} onClick={() => openLectureBrief(lecture.id, page)}>Page {page}</button>)}</div></div>
@@ -1897,8 +2038,9 @@ export default function Home() {
                 {revealed && <div className="question-answer"><strong>Answer</strong><p>{question.answer}</p>{question.explanation && <><strong>Explanation</strong><p>{question.explanation}</p></>}</div>}
                 <footer><button onClick={() => setRevealedQuestionIds((current) => { const next = new Set(current); if (revealed) next.delete(question.id); else next.add(question.id); return next; })}>{revealed ? "Hide answer" : "Show answer"}</button><button className="remove-question" onClick={() => void removeQuestion(lecture.id, question.id)}>Remove</button></footer>
               </article>;
-            })}</div>
-          </article>)}</div> : <div className="home-empty"><strong>No approved questions here yet</strong><span>Select lectures or individual slides and ask Luna to draft the first set.</span><button onClick={() => openQuestionBuilder()}>Draft questions</button></div>}
+            })}</div>}
+          </article>;
+          })}</div> : <div className="home-empty"><strong>No approved questions here yet</strong><span>Select lectures or individual slides and ask Luna to draft the first set.</span><button onClick={() => openQuestionBuilder()}>Draft questions</button></div>}
         </section>}
 
         {view === "concepts" && <section className="full-page concept-bank-page">
@@ -1907,6 +2049,59 @@ export default function Home() {
             const lecture = lectures.find((item) => item.id === concept.lectureId);
             return <article className="concept-bank-card" key={concept.id}><button className="concept-source" onClick={() => openConceptSource(concept)} disabled={!lecture}><strong>{concept.text}</strong><small>{lecture ? `${lecture.title} · PDF page ${concept.page}` : `Source lecture unavailable · PDF page ${concept.page}`}</small></button><button className="concept-archive" onClick={() => setConceptArchived(concept, conceptFilter === "active")}>{conceptFilter === "active" ? "Archive" : "Restore"}</button></article>;
           })}</div> : <div className="home-empty"><strong>{conceptFilter === "active" ? "No concepts saved yet" : "No archived concepts"}</strong><span>{conceptFilter === "active" ? "Highlight text in a lecture PDF and add it to your concept bank." : "Archived concepts will remain available here."}</span></div>}
+        </section>}
+
+        {quizBuilderOpen && <div className="export-backdrop quiz-builder-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setQuizBuilderOpen(false); }}>
+          <section className="quiz-builder-modal" role="dialog" aria-modal="true" aria-labelledby="quiz-builder-title">
+            <header><div><small>BUILD A QUIZ</small><h2 id="quiz-builder-title">Choose quiz material</h2><p>Select any combination of lectures. Questions are mixed together automatically.</p></div><button className="icon-button" aria-label="Close quiz builder" onClick={() => setQuizBuilderOpen(false)}><AppIcon name="x"/></button></header>
+            <div className="quiz-builder-options">
+              <label><span>Number of questions</span><input type="number" min="1" max={Math.max(1, quizQuestionLimit)} disabled={quizQuestionLimit === 0} value={effectiveQuizQuestionCount || 1} onChange={(event) => setQuizQuestionCount(Math.min(100, Math.max(1, Number(event.target.value) || 1)))}/><small>{quizQuestionLimit} available from this selection · 100 maximum</small></label>
+              <div className="quiz-order-setting"><span>Question order</span><strong>Randomized</strong><small>Lectures and questions will be interleaved.</small></div>
+            </div>
+            <div className="question-source-toolbar quiz-source-toolbar"><span><strong>{selectedQuizLectureIds.size}</strong> lecture{selectedQuizLectureIds.size === 1 ? "" : "s"} · <strong>{selectedQuizQuestionCount}</strong> question{selectedQuizQuestionCount === 1 ? "" : "s"}</span><div><button onClick={() => setQuizLectureSelection(questionLectures.map((lecture) => lecture.id), true)}>Select all</button><button onClick={() => setSelectedQuizLectureIds(new Set())}>Clear</button></div></div>
+            <div className="quiz-source-tree">{questionAcademicYears.map((year) => {
+              const yearLectures = questionLectures.filter((lecture) => lecture.academicYear === year);
+              return <section key={year}><h3>{year}</h3>{(questionCoursesByYear[year] ?? []).map((course) => {
+                const courseLectures = yearLectures.filter((lecture) => lecture.course === course);
+                const courseIds = courseLectures.map((lecture) => lecture.id);
+                const courseSelected = courseIds.length > 0 && courseIds.every((id) => selectedQuizLectureIds.has(id));
+                const courseQuestionCount = courseLectures.reduce((total, lecture) => total + lecture.questions.length, 0);
+                return <div className="quiz-source-course" key={course}>
+                  <label className="quiz-source-course-head"><input type="checkbox" checked={courseSelected} onChange={() => setQuizLectureSelection(courseIds, !courseSelected)}/><strong>{course}</strong><span>{courseQuestionCount} questions</span></label>
+                  <div>{courseLectures.map((lecture) => <label className="quiz-source-lecture" key={lecture.id}><input type="checkbox" checked={selectedQuizLectureIds.has(lecture.id)} onChange={(event) => setQuizLectureSelection([lecture.id], event.target.checked)}/><span><strong>{lecture.title}</strong><small>{lecturerFolderLabel(lecture.lecturer)}</small></span><b>{lecture.questions.length}</b></label>)}</div>
+                </div>;
+              })}</section>;
+            })}</div>
+            <footer><button onClick={() => setQuizBuilderOpen(false)}>Cancel</button><button className="quiz-start-button" disabled={effectiveQuizQuestionCount === 0} onClick={startQuiz}>{effectiveQuizQuestionCount > 0 ? `Start ${effectiveQuizQuestionCount} question${effectiveQuizQuestionCount === 1 ? "" : "s"}` : "Start quiz"}</button></footer>
+          </section>
+        </div>}
+
+        {quizQuestions.length > 0 && <section className="quiz-session" role="dialog" aria-modal="true" aria-label="Quiz session">
+          <header className="quiz-session-header"><strong>FCOM.lib <span>Quiz</span></strong><div>{quizMode === "taking" ? `Question ${quizIndex + 1} of ${quizQuestions.length}` : quizMode === "review" ? `Incorrect ${quizReviewIndex + 1} of ${incorrectQuizQuestions.length}` : "Results"}</div><button aria-label="Exit quiz" onClick={exitQuiz}><AppIcon name="x"/></button></header>
+          {quizMode === "taking" && currentQuizQuestion && currentQuizResponse && <>
+            <div className="quiz-progress" role="progressbar" aria-label="Quiz progress" aria-valuemin={1} aria-valuemax={quizQuestions.length} aria-valuenow={quizIndex + 1}><span style={{ width: `${((quizIndex + 1) / quizQuestions.length) * 100}%` }}/></div>
+            <div className="quiz-question-screen">
+              <article className="quiz-question-card">
+                <div className="quiz-question-source"><span>{currentQuizQuestion.lectureTitle}</span><small>{lecturerFolderLabel(currentQuizQuestion.lecturer)}{currentQuizQuestion.question.sourcePages.length ? ` · PDF page ${currentQuizQuestion.question.sourcePages.join(", ")}` : ""}</small></div>
+                <h1>{currentQuizQuestion.question.prompt}</h1>
+                {currentQuizQuestion.question.type === "multiple-choice" ? <div className="quiz-answer-options">{currentQuizQuestion.question.options.map((option, optionIndex) => {
+                  const selected = currentQuizResponse.response === option;
+                  const isAnswer = option === currentQuizQuestion.question.answer;
+                  const stateClass = currentQuizResponse.submitted ? isAnswer ? "correct-answer" : selected ? "incorrect-answer" : "" : selected ? "selected" : "";
+                  return <label className={stateClass} key={`${optionIndex}-${option}`}><input type="radio" name="quiz-answer" disabled={currentQuizResponse.submitted} checked={selected} onChange={() => setCurrentQuizResponse(option)}/><b>{String.fromCharCode(65 + optionIndex)}</b><span>{option}</span></label>;
+                })}</div> : <label className="quiz-short-answer"><span>Your answer</span><textarea disabled={currentQuizResponse.submitted} value={currentQuizResponse.response} onChange={(event) => setCurrentQuizResponse(event.target.value)} placeholder="Write a short response, then compare it with the saved answer."/></label>}
+                {currentQuizResponse.submitted && <div className={`quiz-feedback ${currentQuizResponse.correct === true ? "correct" : currentQuizResponse.correct === false ? "incorrect" : "self-grade"}`}>
+                  <strong>{currentQuizResponse.correct === true ? "Correct" : currentQuizResponse.correct === false ? "Not quite" : "Compare your response"}</strong>
+                  <div><small>Correct answer</small><p>{currentQuizQuestion.question.answer}</p></div>
+                  {currentQuizQuestion.question.explanation && <div><small>Explanation</small><p>{currentQuizQuestion.question.explanation}</p></div>}
+                  {currentQuizQuestion.question.type === "short-answer" && currentQuizResponse.correct === null && <div className="quiz-self-grade"><span>How did you do?</span><button onClick={() => gradeShortAnswer(false)}>Mark incorrect</button><button onClick={() => gradeShortAnswer(true)}>Mark correct</button></div>}
+                </div>}
+                <footer>{!currentQuizResponse.submitted ? <button className="quiz-submit-answer" disabled={!currentQuizResponse.response.trim()} onClick={submitQuizAnswer}>Submit answer</button> : <button className="quiz-next-question" disabled={currentQuizQuestion.question.type === "short-answer" && currentQuizResponse.correct === null} onClick={advanceQuiz}>{quizIndex >= quizQuestions.length - 1 ? "See results" : "Next question"}</button>}</footer>
+              </article>
+            </div>
+          </>}
+          {quizMode === "results" && <div className="quiz-results-screen"><article><small>QUIZ COMPLETE</small><h1>{quizPercent}%</h1><p>{quizCorrectCount} of {quizQuestions.length} correct</p><div className="quiz-result-counts"><span><strong>{quizCorrectCount}</strong>Correct</span><span><strong>{incorrectQuizQuestions.length}</strong>Incorrect</span></div><div className="quiz-result-actions">{incorrectQuizQuestions.length > 0 && <button onClick={() => { setQuizReviewIndex(0); setQuizMode("review"); }}>Review incorrect answers</button>}<button onClick={() => { finishQuiz(); openQuizBuilder(); }}>Take another quiz</button><button className="quiz-finish" onClick={finishQuiz}>Finish</button></div></article></div>}
+          {quizMode === "review" && reviewQuizQuestion && reviewQuizResponse && <div className="quiz-question-screen quiz-review-screen"><article className="quiz-question-card"><div className="quiz-question-source"><span>{reviewQuizQuestion.lectureTitle}</span><small>{lecturerFolderLabel(reviewQuizQuestion.lecturer)}{reviewQuizQuestion.question.sourcePages.length ? ` · PDF page ${reviewQuizQuestion.question.sourcePages.join(", ")}` : ""}</small></div><h1>{reviewQuizQuestion.question.prompt}</h1>{reviewQuizQuestion.question.type === "multiple-choice" && <div className="quiz-answer-options review">{reviewQuizQuestion.question.options.map((option, optionIndex) => <div className={option === reviewQuizQuestion.question.answer ? "correct-answer" : option === reviewQuizResponse.response ? "incorrect-answer" : ""} key={`${optionIndex}-${option}`}><b>{String.fromCharCode(65 + optionIndex)}</b><span>{option}</span></div>)}</div>}<div className="quiz-review-comparison"><div><small>Your answer</small><p>{reviewQuizResponse.response}</p></div><div><small>Correct answer</small><p>{reviewQuizQuestion.question.answer}</p></div>{reviewQuizQuestion.question.explanation && <div><small>Explanation</small><p>{reviewQuizQuestion.question.explanation}</p></div>}</div><footer className="quiz-review-navigation"><button disabled={quizReviewIndex === 0} onClick={() => setQuizReviewIndex((index) => Math.max(0, index - 1))}>Previous incorrect</button>{quizReviewIndex < incorrectQuizQuestions.length - 1 ? <button onClick={() => setQuizReviewIndex((index) => index + 1)}>Next incorrect</button> : <button onClick={() => setQuizMode("results")}>Back to results</button>}</footer></article></div>}
         </section>}
 
         {questionBuilderOpen && <div className="export-backdrop question-builder-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !questionGenerating) setQuestionBuilderOpen(false); }}>
