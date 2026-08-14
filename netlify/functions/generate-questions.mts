@@ -33,6 +33,24 @@ const questionFormat = {
   },
 };
 
+function balanceAnswerPositions(questions: unknown[], limit: number) {
+  const selected = questions.slice(0, limit);
+  const seedText = selected.map((question) => question && typeof question === "object" && "prompt" in question ? String(question.prompt) : "").join("|");
+  let seed = 0;
+  for (let index = 0; index < seedText.length; index += 1) seed = ((seed * 31) + seedText.charCodeAt(index)) >>> 0;
+  return selected.map((question, questionIndex) => {
+    if (!question || typeof question !== "object" || !("type" in question) || question.type !== "multiple-choice" || !("options" in question) || !Array.isArray(question.options) || !("answer" in question)) return question;
+    const options = question.options.filter((option): option is string => typeof option === "string");
+    const answer = String(question.answer).trim();
+    const correctIndex = options.findIndex((option) => option.trim() === answer);
+    if (options.length < 2 || correctIndex < 0) return question;
+    const [correctOption] = options.splice(correctIndex, 1);
+    const targetIndex = (seed + questionIndex) % (options.length + 1);
+    options.splice(targetIndex, 0, correctOption);
+    return { ...question, options };
+  });
+}
+
 function sourceText(sources: SourceInput[]) {
   let remaining = 90_000;
   return sources.map((source) => {
@@ -85,7 +103,7 @@ ${sourceText(validSources)}`;
   const output = data.output_text ?? data.output?.flatMap((item) => item.content ?? []).map((item) => item.text ?? "").join("") ?? "{}";
   try {
     const parsed = JSON.parse(output) as { questions?: unknown[] };
-    return Response.json({ questions: Array.isArray(parsed.questions) ? parsed.questions.slice(0, requestedCount) : [] });
+    return Response.json({ questions: Array.isArray(parsed.questions) ? balanceAnswerPositions(parsed.questions, requestedCount) : [] });
   } catch { return Response.json({ error: "Luna returned an unreadable question set." }, { status: 502 }); }
 };
 
