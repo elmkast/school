@@ -1499,7 +1499,7 @@ export default function Home() {
               <button className="lecture-open" onClick={toggleExpanded}>
                 <span className="lecture-copy"><small>{lecture.course.toUpperCase()}</small><strong>{lecture.title}</strong><em>{lecture.lecturer} · {lectureWeekLabel(lecture.week)}</em></span>
               </button>
-              <label className="lecture-week-control unified-week-control"><select aria-label={`Curriculum week for ${lecture.title}`} value={lecture.week ?? ""} onChange={(event) => updateLectureWeek(lecture, event.target.value)}><option value="">Week —</option>{LECTURE_WEEK_OPTIONS.map((week) => <option key={week} value={week}>Week {week}</option>)}</select></label>
+              <span className="lecture-week-control lecture-week-display unified-week-control" aria-label={`Curriculum week: ${lectureWeekLabel(lecture.week)}`}>{lectureWeekLabel(lecture.week)}</span>
               <div className="lecture-card-rail"><span className="catalog-count">{lecture.slos.length} SLO{lecture.slos.length === 1 ? "" : "s"}</span><button className="card-open-brief" onClick={toggleExpanded}><span>{expanded ? "Hide SLOs" : "View SLOs"}</span><AppIcon name="arrow"/></button></div>
               {expanded && <div className="unified-card-content"><ol>{entries.map(({ slo, index }) => {
               const flagged = lecture.flaggedSLOs.includes(index);
@@ -1521,7 +1521,7 @@ export default function Home() {
             const toggleExpanded = () => setExpandedQuestionBankLectureIds((current) => { const next = new Set(current); if (expanded) next.delete(lecture.id); else next.add(lecture.id); return next; });
             return <article className={`lecture-card unified-curriculum-card ${expanded ? "expanded" : ""}`} key={lecture.id}>
             <button className="lecture-open" onClick={toggleExpanded}><span className="lecture-copy"><small>{lecture.course.toUpperCase()}</small><strong>{lecture.title}</strong><em>{lecture.lecturer} · {lectureWeekLabel(lecture.week)}</em></span></button>
-            <label className="lecture-week-control unified-week-control"><select aria-label={`Curriculum week for ${lecture.title}`} value={lecture.week ?? ""} onChange={(event) => updateLectureWeek(lecture, event.target.value)}><option value="">Week —</option>{LECTURE_WEEK_OPTIONS.map((week) => <option key={week} value={week}>Week {week}</option>)}</select></label>
+            <span className="lecture-week-control lecture-week-display unified-week-control" aria-label={`Curriculum week: ${lectureWeekLabel(lecture.week)}`}>{lectureWeekLabel(lecture.week)}</span>
             <div className="lecture-card-rail"><span className="catalog-count">{lecture.questions.length} question{lecture.questions.length === 1 ? "" : "s"}</span><button className="card-open-brief" onClick={toggleExpanded}><span>{expanded ? "Hide questions" : "View questions"}</span><AppIcon name="arrow"/></button></div>
             {expanded && <div className="unified-card-content question-list">{lecture.questions.map((question, index) => {
               const revealed = revealedQuestionIds.has(question.id);

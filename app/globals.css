@@ -242,9 +242,11 @@ button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-vis
 .lecture-week-control select:focus-visible { outline:2px solid #7f9bad; outline-offset:2px; }
 .lecture-card-rail { top:50px; right:13px; bottom:13px; width:112px; grid-template-rows:auto auto; align-content:space-between; }
 .unified-week-control { right:13px; }
+.lecture-week-display { min-width:92px; height:31px; display:flex; align-items:center; justify-content:flex-start; border:1px solid #d5d8db; border-radius:var(--radius-sm); background:#fff; color:#3f454b; padding:0 9px; font:600 10px/1 var(--font-ui); white-space:nowrap; }
 .catalog-count { justify-self:end; border:1px solid #d0d4d7; border-radius:var(--radius-xs); background:#f1f2f3; color:#4f555b; padding:5px 7px; font-size:10px; font-weight:700; line-height:1; white-space:nowrap; }
 .unified-curriculum-card.expanded { display:block; }
 .unified-curriculum-card.expanded .lecture-open { border-bottom:1px solid #dfe2e4; }
+.unified-curriculum-card.expanded .lecture-card-rail { bottom:auto; height:85px; }
 .unified-card-content { width:100%; border-top:1px solid #e0e2e4; background:#fff; padding:18px 20px 16px; }
 .unified-curriculum-card.expanded .lecture-open + .lecture-week-control ~ .unified-card-content { border-top:0; }
 .unified-card-content>ol { list-style:none; margin:0; padding:0; display:grid; gap:8px; }
@@ -262,6 +264,7 @@ button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-vis
 .card-open-brief span { max-width:none; white-space:nowrap; }
 .card-open-brief:hover { border-color:#15191c; background:#15191c; }
 .card-open-brief svg { display:none; }
+.slo-page,.question-bank-page { width:calc(100% - 440px); max-width:none; padding:38px 38px 80px; }
 .file-icon,.empty-state>svg,.library-empty>svg,.pdf-index-summary>svg,.dropzone>span { display:none; }
 .dropzone { min-height:96px; border-color:#bfc3c7; border-radius:var(--radius-md); color:#666d74; }
 .dropzone:hover,.dropzone.dragging { border-color:#6f8290; background:#edf0f2; }
@@ -434,6 +437,11 @@ button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-vis
   .page-title h1,.full-page h1 { font-size:27px; }
   .home-flagged-card { padding:17px; }
   .home-flagged-card>header { flex-direction:column; }
+}
+
+@media (min-width:761px) and (max-width:1350px) {
+  .slo-page .page-toolbar,.question-bank-page .page-toolbar { align-items:flex-start; flex-direction:column; }
+  .slo-page .page-toolbar-actions,.question-bank-page .page-toolbar-actions { width:100%; margin-left:0; justify-content:flex-start; flex-wrap:wrap; }
 }
 
 /* Selectable PDF text */
