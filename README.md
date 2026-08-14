@@ -40,32 +40,17 @@ See the [product feature and development specification](docs/MEDLIBRARY_PRODUCT_
 - Unread, Read, and Re-review pre-read states with a dedicated re-review queue
 - Page-level PDF pre-read indexing and saved article-text search
 
-## Run locally
+## Development environment
 
-Requires Node.js 22 and pnpm.
+Netlify is the single supported application runtime. The former standalone local AI server has been retired so prompts and server behavior cannot drift between environments. Frontend-only development remains available through `pnpm dev:netlify`; AI workflows should be tested through a Netlify deploy or Netlify's development runtime.
 
-For the full local demo, create `.env.local` from `.env.example` and add your keys locally:
-
-```text
-OPENAI_API_KEY=your_key_here
-VITE_SUPABASE_URL=https://your-project.supabase.co
-VITE_SUPABASE_PUBLISHABLE_KEY=sb_publishable_your_key_here
-```
-
-Then run:
-
-```bash
-pnpm install
-pnpm dev:local
-```
-
-Open `http://127.0.0.1:5173`. The Vite server keeps the OpenAI key off the browser. Supabase's publishable key is intentionally available to the browser; row-level security protects each user's data. IndexedDB remains a local cache. Luna chat is intentionally session-only and is cleared when a lecture is reopened.
+Supabase's publishable key is intentionally available to the browser; row-level security protects each user's data. IndexedDB remains a device cache. Luna chat is intentionally session-only and is cleared when a lecture is reopened.
 
 ## Configure Supabase once
 
 1. Open **Supabase Dashboard → SQL Editor → New query**.
 2. Copy and run [`supabase/migrations/202608120001_fcom_library.sql`](supabase/migrations/202608120001_fcom_library.sql). This creates the three private tables, the private `fcom-library` Storage bucket, and per-user access policies.
-3. In **Authentication → URL Configuration**, set the Site URL to the Netlify production URL. Add `http://127.0.0.1:5173/**` as an additional redirect URL while developing locally.
+3. In **Authentication → URL Configuration**, set the Site URL to the Netlify production URL.
 4. In **Authentication → Providers → Email**, keep Email enabled. Choose whether email confirmation is required; confirmation is recommended before inviting additional users.
 
 On the first signed-in launch, FCOM.lib detects an empty cloud account and offers **Migrate this device**. Migration copies all local lecture records, PDFs, notes, markups, SLO flags, pre-reads, and concepts. It does not remove the local copies.

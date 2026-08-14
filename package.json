@@ -10,7 +10,6 @@
   },
   "scripts": {
     "dev": "vinext dev",
-    "dev:local": "vite --config vite.local.config.ts",
     "dev:netlify": "vite --config vite.netlify.config.ts",
     "build": "vinext build",
     "build:netlify": "vite build --config vite.netlify.config.ts",
