@@ -41,7 +41,6 @@ function StandardNavigation({ active, onSelect }: { active: string; onSelect: (v
     <SidebarItem label="Home" active={active === "home"} onClick={() => onSelect("home")} />
     <SidebarDivider />
     <SidebarSection><CurriculumFixture active={active} onSelect={onSelect} /></SidebarSection>
-    <SidebarItem label="Favorites" count={1} active={active === "favorites"} onClick={() => onSelect("favorites")} />
     <SidebarItem label="SLOs" active={active === "slos"} onClick={() => onSelect("slos")} />
     <SidebarItem label="Question Bank" count={93} active={active === "questions"} onClick={() => onSelect("questions")} />
     <SidebarDivider />
@@ -55,7 +54,6 @@ function PrototypeCanvas({ variant }: { variant: Variant }) {
     <Sidebar className="sidebar-prototype sidebar-prototype-rail" footer={<small>FCOM.lib</small>}>
       <SidebarItem label="Home" active={active === "home"} onClick={() => setActive("home")} />
       <SidebarItem label="Lectures" active={["lectures", "year", "mcf", "huwe", "kuehn", "mitsouras", "rinaldi", "vansal", "imd", "heme"].includes(active)} onClick={() => setActive("lectures")} />
-      <SidebarItem label="Favorites" active={active === "favorites"} onClick={() => setActive("favorites")} />
       <SidebarItem label="SLOs" active={active === "slos"} onClick={() => setActive("slos")} />
       <SidebarItem label="Questions" active={active === "questions"} onClick={() => setActive("questions")} />
       <SidebarItem label="Pre-reads" active={active === "prereads"} onClick={() => setActive("prereads")} />

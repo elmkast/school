@@ -99,14 +99,10 @@ Lectures
     ├── GI
     └── Renal
 
-Favorites
-
 Pre-reads
 ├── Unread
 ├── Read
 └── Re-review
-
-Search
 
 SLOs
 ├── Flagged SLOs
@@ -145,10 +141,10 @@ Status definitions:
 | Academic-year folders | Implemented | Years are generated from lecture metadata | Persist and manage year metadata server-side |
 | Course folders | Implemented | Courses are generated within each academic year | Course rename/merge and ordering controls |
 | Lecturer subfolders | Implemented | Each course expands into lecturer-specific filters using the lecturers already in the library | Lecturer merge and canonical-name controls |
-| Lectures root view | Implemented | The Lectures section header opens the complete collection across all years and courses while also controlling its collapsible folder tree | Server-side pagination for large libraries |
-| Collapsible Lectures tree | Implemented | Lectures expands directly into years, courses, and lecturers without a redundant All Lectures node | Persist expansion preference per device |
+| Lectures root view | Implemented | The Lectures destination opens the complete collection across all years and courses in the two-level navigator | Server-side pagination for large libraries |
+| Collapsible Lectures tree | Implemented | A dedicated curriculum column expands into years, courses, and lecturers; chevrons control expansion independently from folder selection | Persist expansion preference per device |
 | Lecture sorting | Implemented | Sorts by manually assigned curriculum week, earliest first with unassigned lectures last, or lecture name A–Z | Persist sort preference per user |
-| Favorites | Implemented | Mark/unmark lectures and open a favorites-only list | Sync favorites across devices |
+| Favorites | Implemented | Mark/unmark lectures and retrieve them using the Favorited option in the Lectures Filter by menu | Sync favorites across devices |
 | Lecture deletion | Implemented | Removes lecture metadata and local PDF after confirmation | Soft delete, recovery window, and storage cleanup job |
 | Editable lecture details | Implemented | Manually correct course, select an existing lecturer or add a new lecturer, and assign Week 1 through Week 52 or leave the lecture unassigned; Luna does not infer the week | Add title and academic-year editing plus canonical lecturer management |
 | Lecture detail panel | Implemented | Shows summary, editable course/lecturer/week metadata, every SLO, and a consistently formatted session outline without redundant count boxes | Full metadata editor and re-analysis controls |

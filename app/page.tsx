@@ -136,7 +136,7 @@ export default function Home() {
   const [preReads, setPreReads] = useState<PreRead[]>([]);
   const [activeId, setActiveId] = useState(seedLectures[0].id);
   const [query, setQuery] = useState("");
-  const [view, setView] = useState<"home" | "library" | "favorites" | "search" | "slos" | "prereads" | "questions">("home");
+  const [view, setView] = useState<"home" | "library" | "search" | "slos" | "prereads" | "questions">("home");
   const [activeYear, setActiveYear] = useState(currentAcademicYear());
   const [expandedYear, setExpandedYear] = useState<string | null>(currentAcademicYear());
   const [expandedCourse, setExpandedCourse] = useState<string | null>(null);
@@ -329,19 +329,19 @@ export default function Home() {
   }, {}), [academicYears, lectures]);
   const lecturerOptions = useMemo(() => Array.from(new Set(lectures.map((lecture) => lecture.lecturer).filter((lecturer) => !/not detected|unknown|unassigned/i.test(String(lecturer ?? ""))))).sort(compareText), [lectures]);
   const visibleLectures = useMemo(() => {
-    const filtered = view === "favorites"
-      ? lectures.filter((lecture) => lecture.favorite)
-      : allLecturesSelected
-        ? lectures
-        : lectures.filter((lecture) => lecture.academicYear === activeYear
-          && (activeCourse === "All courses" || lecture.course === activeCourse)
-          && (activeLecturer === ALL_LECTURERS || lecture.lecturer === activeLecturer));
+    const filtered = allLecturesSelected
+      ? lectures
+      : lectures.filter((lecture) => lecture.academicYear === activeYear
+        && (activeCourse === "All courses" || lecture.course === activeCourse)
+        && (activeLecturer === ALL_LECTURERS || lecture.lecturer === activeLecturer));
     const weekFiltered = filtered.filter((lecture) => lectureWeekFilter === "all"
-      || (lectureWeekFilter === "unassigned" ? lecture.week === null : lecture.week === Number(lectureWeekFilter)));
+      || (lectureWeekFilter === "favorited" ? lecture.favorite
+        : lectureWeekFilter === "unassigned" ? lecture.week === null
+          : lecture.week === Number(lectureWeekFilter)));
     return [...weekFiltered].sort((a, b) => lectureSort === "name-asc"
       ? compareText(a.title, b.title)
       : compareLectureWeeks(a.week, b.week) || compareText(a.title, b.title));
-  }, [lectures, view, allLecturesSelected, activeYear, activeCourse, activeLecturer, lectureWeekFilter, lectureSort]);
+  }, [lectures, allLecturesSelected, activeYear, activeCourse, activeLecturer, lectureWeekFilter, lectureSort]);
   const displayActive = visibleLectures.find((lecture) => lecture.id === activeId) ?? visibleLectures[0];
   const visibleSloLectures = useMemo(() => {
     const folderLectures = allSLOsSelected
@@ -1378,10 +1378,8 @@ export default function Home() {
         <Sidebar className="live-primary-sidebar" ariaLabel="Primary navigation" footer={<small>FCOM.lib</small>}>
           <SidebarItem label="Home" active={view === "home"} onClick={() => setView("home")} />
           <SidebarItem label="Lectures" active={view === "library"} onClick={selectLectureRoot} />
-          <SidebarItem label="Favorites" active={view === "favorites"} onClick={() => setView("favorites")} />
           <SidebarItem label="SLOs" active={view === "slos"} onClick={selectSloRoot} />
           <SidebarItem label="Question Bank" active={view === "questions"} onClick={selectQuestionRoot} />
-          <div className="live-primary-spacer" />
           <SidebarItem label="Pre-reads" active={view === "prereads"} onClick={selectPreReadRoot} />
         </Sidebar>
         <Sidebar className="live-curriculum-sidebar" ariaLabel="Curriculum folders" footer={<div className="side-bottom">{cloudSession ? <div className="cloud-account"><span><strong>Cloud library</strong><small>{cloudSession.user.email}</small>{migrationRunning && migrationProgress && <small>Syncing {migrationProgress.completed} of {migrationProgress.total}</small>}</span><div className="cloud-account-actions"><button type="button" disabled={migrationRunning} onClick={() => void migrateThisDevice()}>{migrationRunning ? "Syncing…" : "Sync this device"}</button><button type="button" onClick={downloadDiagnostics}>Diagnostics</button><button type="button" disabled={migrationRunning} onClick={() => void signOutCloud()}>Sign out</button></div></div> : <p><span><strong>Device library</strong><br/><small>Cloud connection not configured</small><button className="device-diagnostics" type="button" onClick={downloadDiagnostics}>Diagnostics</button></span></p>}</div>}>
@@ -1418,15 +1416,15 @@ export default function Home() {
           })}</div> : <div className="home-empty"><strong>No flagged SLOs</strong><span>Flag an objective from the SLO page and it will appear here.</span></div>}
         </section>}
 
-        {(view === "library" || view === "favorites") && <div className={`content-grid ${displayActive ? "" : "single-column"}`}>
+        {view === "library" && <div className={`content-grid ${displayActive ? "" : "single-column"}`}>
           <section className="library-panel">
-            <CurriculumPageToolbar heading={<div className="eyebrow">{view === "favorites" ? "SAVED LECTURES" : libraryLocationLabel}</div>} filters={<><label className="sort-control"><span>Filter by</span><select aria-label="Filter lectures by curriculum week" value={lectureWeekFilter} onChange={(event) => setLectureWeekFilter(event.target.value)}><option value="all">All weeks</option>{LECTURE_WEEK_OPTIONS.map((week) => <option key={week} value={week}>Week {week}</option>)}<option value="unassigned">Week unassigned</option></select></label><label className="sort-control"><span>Sort by</span><select value={lectureSort} onChange={(event) => setLectureSort(event.target.value as "week-asc" | "name-asc")}><option value="week-asc">Week · earliest first</option><option value="name-asc">Name · A–Z</option></select></label></>} />
+            <CurriculumPageToolbar heading={<div className="eyebrow">{libraryLocationLabel}</div>} filters={<><label className="sort-control"><span>Filter by</span><select aria-label="Filter lectures" value={lectureWeekFilter} onChange={(event) => setLectureWeekFilter(event.target.value)}><option value="all">All weeks</option><option value="favorited">Favorited</option>{LECTURE_WEEK_OPTIONS.map((week) => <option key={week} value={week}>Week {week}</option>)}<option value="unassigned">Week unassigned</option></select></label><label className="sort-control"><span>Sort by</span><select value={lectureSort} onChange={(event) => setLectureSort(event.target.value as "week-asc" | "name-asc")}><option value="week-asc">Week · earliest first</option><option value="name-asc">Name · A–Z</option></select></label></>} />
             {view === "library" && <button className={`dropzone top-dropzone ${dragging ? "dragging" : ""}`} onClick={() => fileInput.current?.click()} onDragOver={(e) => { e.preventDefault(); setDragging(true); }} onDragLeave={() => setDragging(false)} onDrop={(e) => { e.preventDefault(); setDragging(false); if (e.dataTransfer.files.length) enqueueFiles(e.dataTransfer.files); }}>
               <span><AppIcon name="upload"/></span><strong>Drop one or more lectures here</strong><small>PDF · Import to {currentImportDestination.label}</small>
             </button>}
             <div className="lecture-list">
               {visibleLectures.map((lecture) => <CurriculumCard key={lecture.id} title={lecture.title} course={lecture.course} lecturer={lecture.lecturer} week={lecture.week} selected={displayActive?.id === lecture.id} countLabel={`${lecture.slos.length} SLO${lecture.slos.length === 1 ? "" : "s"}`} primaryActionLabel="Open lecture" onPrimaryAction={() => { setActiveId(lecture.id); openLectureBrief(lecture.id); }} onSelect={() => setActiveId(lecture.id)} weekEditable onWeekChange={(value) => void updateLectureWeek(lecture, value)} countTooltip={<><strong>Session learning objectives</strong>{lecture.slos.length > 0 ? <ol>{lecture.slos.map((slo, index) => <li key={`${index}-${slo}`}>{slo}</li>)}</ol> : <p>No SLOs were extracted for this lecture.</p>}</>} favorite={lecture.favorite} onToggleFavorite={() => void toggleFavorite(lecture.id)} onRemove={() => void removeLecture(lecture.id)} />)}
-              {visibleLectures.length === 0 && <div className="library-empty"><AppIcon name={view === "favorites" ? "star" : "folder"}/><strong>{view === "favorites" ? "No favorite lectures yet" : "This folder is empty"}</strong><span>{view === "favorites" ? "Use the star on any lecture to keep it here." : "Add a PDF to this academic year and course."}</span></div>}
+              {visibleLectures.length === 0 && <div className="library-empty"><AppIcon name="folder"/><strong>{lectureWeekFilter === "favorited" ? "No favorited lectures in this folder" : "This folder is empty"}</strong><span>{lectureWeekFilter === "favorited" ? "Use the star on a lecture, then return to this filter." : "Add a PDF to this academic year and course."}</span></div>}
             </div>
           </section>
 

@@ -836,7 +836,6 @@ button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-vis
 .live-primary-sidebar .sidebar-system-label { font-size:11px; font-weight:570; }
 .live-primary-sidebar .sidebar-system-item.active { background:#353a40; box-shadow:inset 3px 0 #afc0c9; }
 .live-primary-sidebar .sidebar-system-footer { min-height:50px; padding:10px 16px; }
-.live-primary-spacer { flex:1; min-height:24px; }
 .live-curriculum-sidebar { background:#2a2e33; }
 .live-curriculum-sidebar>nav { padding:16px 10px; }
 .live-curriculum-sidebar .sidebar-system-section-label { min-height:29px; padding-left:8px; }
@@ -859,7 +858,7 @@ button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-vis
   .live-primary-sidebar>nav{padding:7px 8px;display:flex;flex-direction:row;gap:2px;overflow-x:auto}
   .live-primary-sidebar .sidebar-system-item{width:auto;min-width:max-content;min-height:38px;padding:0 9px}
   .live-primary-sidebar .sidebar-system-destination{min-height:38px}
-  .live-primary-sidebar .sidebar-system-footer,.live-curriculum-sidebar,.live-primary-spacer{display:none}
+  .live-primary-sidebar .sidebar-system-footer,.live-curriculum-sidebar{display:none}
 }
 
 @media(max-width:760px){
