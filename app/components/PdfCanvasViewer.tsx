@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState, type PointerEvent } from "react";
 import type { InkPoint, InkStroke } from "../../lib/lecture-store";
+import { pdfjs } from "../../lib/pdf-runtime";
 
 type PdfDocument = {
   numPages: number;
@@ -41,8 +42,6 @@ function loadPdfDocument(lectureId: string, file: Blob) {
   const cached = pdfDocumentCache.get(lectureId);
   if (cached) return cached;
   const promise = (async () => {
-    const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
-    pdfjs.GlobalWorkerOptions.workerSrc = new URL("pdfjs-dist/legacy/build/pdf.worker.min.mjs", import.meta.url).toString();
     const data = new Uint8Array(await file.arrayBuffer());
     return await pdfjs.getDocument({ data }).promise as unknown as PdfDocument;
   })();
@@ -85,7 +84,6 @@ export function PdfCanvasViewer({ file, lectureId, page, inkStrokes, penEnabled,
     let renderedTextLayer: PdfTextLayer | null = null;
     setStatus("Rendering page…");
     void (async () => {
-      const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
       const pdfPage = await document.getPage(Math.min(Math.max(page, 1), document.numPages));
       if (cancelled) return;
       const base = pdfPage.getViewport({ scale: 1 });

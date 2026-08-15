@@ -91,13 +91,13 @@ These primitives own row height, indentation, chevrons, counts, focus behavior, 
 
 Decorative icons are excluded. Chevrons remain because they communicate an interactive expansion state. Counts are quiet, right-aligned text rather than badges.
 
-Three navigation models are maintained on `/ui-review` while the final direction is being selected:
+Three navigation models remain on `/ui-review` as references:
 
-1. Workspace navigator: a calm, single-column expandable hierarchy. Current recommendation.
+1. Workspace navigator: a calm, single-column expandable hierarchy.
 2. Compact document tree: a denser version optimized for a large curriculum.
-3. Two-level navigator: permanent destinations in a narrow rail with a separate curriculum tree.
+3. Two-level navigator: permanent destinations in a narrow rail with a separate curriculum tree. **Selected for the live application.**
 
-The live product sidebar should not be migrated until a prototype is selected. Selection changes presentation only; the existing navigation and filtering behavior must be preserved.
+In the live two-level navigator, folder expansion and curriculum selection are independent actions. The chevron is a discrete button that only expands or collapses descendants. The folder label is a separate button that only changes the curriculum filter. Expanding a folder must not navigate, and navigating to a folder must not expand it.
 
 ## Component review page
 

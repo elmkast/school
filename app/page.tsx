@@ -9,12 +9,14 @@ import { clearUploadDiagnosticCheckpoint, downloadDiagnostics, recordDiagnostic,
 import { ALL_LECTURERS, LECTURE_WEEK_OPTIONS, NEW_LECTURER, compareLectureWeeks, compareText, lectureWeekLabel, lecturerFolderLabel } from "../lib/curriculum";
 import { searchMatchScore, searchResultCollectionTitle, searchResultWeek, type LectureSearchResult, type PreReadSearchResult, type SearchKind, type SearchResult } from "../lib/curriculum-search";
 import { shuffleItems, type QuestionDraft, type QuizMode, type QuizQuestion, type QuizResponse } from "../lib/questions";
+import { pdfjs } from "../lib/pdf-runtime";
 import { seedLectures } from "../lib/seed-lectures";
 import { AppIcon } from "./components/AppIcon";
 import { CurriculumCard } from "./components/CurriculumCard";
 import { CurriculumPageToolbar } from "./components/CurriculumPageToolbar";
 import { CurriculumTree } from "./components/CurriculumTree";
 import { PdfCanvasViewer } from "./components/PdfCanvasViewer";
+import { Sidebar, SidebarItem, SidebarSection } from "./components/SidebarSystem";
 
 function readableError(error: unknown) {
   if (error instanceof Error && error.message) return error.message;
@@ -141,15 +143,12 @@ export default function Home() {
   const [activeCourse, setActiveCourse] = useState("All courses");
   const [activeLecturer, setActiveLecturer] = useState(ALL_LECTURERS);
   const [allLecturesSelected, setAllLecturesSelected] = useState(true);
-  const [libraryTreeExpanded, setLibraryTreeExpanded] = useState(true);
-  const [preReadTreeExpanded, setPreReadTreeExpanded] = useState(false);
   const [preReadFilter, setPreReadFilter] = useState<"all" | PreReadStatus>("all");
   const [preReadDialogOpen, setPreReadDialogOpen] = useState(false);
   const [preReadSaving, setPreReadSaving] = useState(false);
   const [preReadPdfFile, setPreReadPdfFile] = useState<File | null>(null);
   const [previewPreReadId, setPreviewPreReadId] = useState("");
   const [preReadDraft, setPreReadDraft] = useState<PreReadDraft>({ title: "", author: "", course: "", academicYear: currentAcademicYear(), sourceType: "pdf", sourceUrl: "", text: "" });
-  const [sloTreeExpanded, setSloTreeExpanded] = useState(false);
   const [expandedSloYear, setExpandedSloYear] = useState<string | null>(currentAcademicYear());
   const [expandedSloCourse, setExpandedSloCourse] = useState<string | null>(null);
   const [activeSloYear, setActiveSloYear] = useState(currentAcademicYear());
@@ -160,7 +159,6 @@ export default function Home() {
   const [sloWeekFilter, setSloWeekFilter] = useState("all");
   const [sloSort, setSloSort] = useState<"week-asc" | "name-asc">("week-asc");
   const [expandedSloLectureIds, setExpandedSloLectureIds] = useState<Set<string>>(new Set());
-  const [questionTreeExpanded, setQuestionTreeExpanded] = useState(false);
   const [expandedQuestionYear, setExpandedQuestionYear] = useState<string | null>(currentAcademicYear());
   const [expandedQuestionCourse, setExpandedQuestionCourse] = useState<string | null>(null);
   const [activeQuestionYear, setActiveQuestionYear] = useState(currentAcademicYear());
@@ -740,7 +738,6 @@ export default function Home() {
     setQuestionBuilderOpen(false);
     setQuestionDrafts(null);
     setAllQuestionsSelected(true);
-    setQuestionTreeExpanded(true);
     setView("questions");
     setNotice(`Added ${approved.length} approved question${approved.length === 1 ? "" : "s"} to the question bank.`);
   }
@@ -936,8 +933,6 @@ export default function Home() {
     setUploadDiagnosticCheckpoint("starting", diagnosticContext);
     onStage("extracting");
     try {
-      const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
-      pdfjs.GlobalWorkerOptions.workerSrc = new URL("pdfjs-dist/legacy/build/pdf.worker.min.mjs", import.meta.url).toString();
       let data = new Uint8Array(await file.arrayBuffer());
       const pdf = await pdfjs.getDocument({ data }).promise;
       const pageCount = pdf.numPages;
@@ -1193,8 +1188,6 @@ export default function Home() {
       const pages: Slide[] = [];
       let text = preReadDraft.text.trim();
       if (preReadDraft.sourceType === "pdf" && preReadPdfFile) {
-        const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
-        pdfjs.GlobalWorkerOptions.workerSrc = new URL("pdfjs-dist/legacy/build/pdf.worker.min.mjs", import.meta.url).toString();
         const data = new Uint8Array(await preReadPdfFile.arrayBuffer());
         const pdf = await pdfjs.getDocument({ data }).promise;
         for (let page = 1; page <= pdf.numPages; page++) {
@@ -1265,7 +1258,6 @@ export default function Home() {
 
   const exportableLectures = lectures.filter((lecture) => lecture.slos.length > 0);
   const selectedExportCount = exportableLectures.filter((lecture) => selectedExportLectureIds.has(lecture.id)).length;
-  const favoriteCount = lectures.filter((lecture) => lecture.favorite).length;
   const totalQuestionCount = questionLectures.reduce((total, lecture) => total + lecture.questions.length, 0);
   const selectedQuestionSourceCount = selectedQuestionLectureIds.size + selectedQuestionSlideKeys.size;
   const selectedQuizQuestionCount = questionLectures.filter((lecture) => selectedQuizLectureIds.has(lecture.id)).reduce((total, lecture) => total + lecture.questions.length, 0);
@@ -1291,33 +1283,25 @@ export default function Home() {
   const viewerPageInk = viewerLecture?.markups?.[selectedPage] ?? [];
 
   function selectLectureRoot() {
-    const collapse = view === "library" && allLecturesSelected && libraryTreeExpanded;
     setAllLecturesSelected(true);
     setActiveLecturer(ALL_LECTURERS);
-    setLibraryTreeExpanded(!collapse);
     setView("library");
   }
 
   function selectPreReadRoot() {
-    const collapse = view === "prereads" && preReadFilter === "all" && preReadTreeExpanded;
     setPreReadFilter("all");
-    setPreReadTreeExpanded(!collapse);
     setView("prereads");
   }
 
   function selectSloRoot() {
-    const collapse = view === "slos" && allSLOsSelected && sloTreeExpanded;
     setAllSLOsSelected(true);
     setActiveSloLecturer(ALL_LECTURERS);
-    setSloTreeExpanded(!collapse);
     setView("slos");
   }
 
   function selectQuestionRoot() {
-    const collapse = view === "questions" && allQuestionsSelected && questionTreeExpanded;
     setAllQuestionsSelected(true);
     setActiveQuestionLecturer(ALL_LECTURERS);
-    setQuestionTreeExpanded(!collapse);
     setView("questions");
   }
 
@@ -1390,31 +1374,24 @@ export default function Home() {
 
   return (
     <main className="shell">
-      <aside className="sidebar">
-        <nav className="primary-nav" aria-label="Primary navigation">
-          <button className={`nav-link home-link ${view === "home" ? "active" : ""}`} onClick={() => setView("home")}><strong>Home</strong></button>
-          <section className="nav-section">
-            <button className={`nav-root ${view === "library" && allLecturesSelected ? "active" : ""}`} aria-expanded={libraryTreeExpanded} onClick={selectLectureRoot}><span className={`nav-caret ${libraryTreeExpanded ? "expanded" : ""}`}>›</span><AppIcon name="library"/><strong>Lectures</strong><b>{lectures.length}</b></button>
-            {libraryTreeExpanded && <CurriculumTree lectures={lectures} academicYears={academicYears} coursesByYear={coursesByYear} expandedYear={expandedYear} expandedCourse={expandedCourse} selectedYear={activeYear} selectedCourse={activeCourse} selectedLecturer={activeLecturer} allSelected={allLecturesSelected} isCurrentSection={view === "library"} onSelectYear={(year) => { setAllLecturesSelected(false); setActiveYear(year); setActiveCourse("All courses"); setActiveLecturer(ALL_LECTURERS); setExpandedYear(year); setView("library"); }} onSelectCourse={(year, course, courseKey) => { setAllLecturesSelected(false); setActiveYear(year); setActiveCourse(course); setActiveLecturer(ALL_LECTURERS); setExpandedCourse((current) => current === courseKey ? null : courseKey); setView("library"); }} onSelectLecturer={(year, course, lecturer) => { setAllLecturesSelected(false); setActiveYear(year); setActiveCourse(course); setActiveLecturer(lecturer); setView("library"); }} />}
-          </section>
-          <button className={`nav-link ${view === "favorites" ? "active" : ""}`} onClick={() => setView("favorites")}><span className="nav-indent"/><AppIcon name="star"/><strong>Favorites</strong><b>{favoriteCount}</b></button>
-          <section className="nav-section">
-            <button className={`nav-root ${view === "slos" && allSLOsSelected ? "active" : ""}`} aria-expanded={sloTreeExpanded} onClick={selectSloRoot}><span className={`nav-caret ${sloTreeExpanded ? "expanded" : ""}`}>›</span><AppIcon name="target"/><strong>SLOs</strong></button>
-            {sloTreeExpanded && <CurriculumTree lectures={lectures} academicYears={academicYears} coursesByYear={coursesByYear} expandedYear={expandedSloYear} expandedCourse={expandedSloCourse} selectedYear={activeSloYear} selectedCourse={activeSloCourse} selectedLecturer={activeSloLecturer} allSelected={allSLOsSelected} isCurrentSection={view === "slos"} showCounts={false} onSelectYear={(year) => { setAllSLOsSelected(false); setActiveSloYear(year); setActiveSloCourse("All courses"); setActiveSloLecturer(ALL_LECTURERS); setExpandedSloYear(year); setView("slos"); }} onSelectCourse={(year, course, courseKey) => { setAllSLOsSelected(false); setActiveSloYear(year); setActiveSloCourse(course); setActiveSloLecturer(ALL_LECTURERS); setExpandedSloCourse((current) => current === courseKey ? null : courseKey); setView("slos"); }} onSelectLecturer={(year, course, lecturer) => { setAllSLOsSelected(false); setActiveSloYear(year); setActiveSloCourse(course); setActiveSloLecturer(lecturer); setView("slos"); }} />}
-          </section>
-          <section className="nav-section">
-            <button className={`nav-root ${view === "questions" && allQuestionsSelected ? "active" : ""}`} aria-expanded={questionTreeExpanded} onClick={selectQuestionRoot}><span className={`nav-caret ${questionTreeExpanded ? "expanded" : ""}`}>›</span><span className="nav-indent"/><strong>Question Bank</strong><b>{totalQuestionCount}</b></button>
-            {questionTreeExpanded && <CurriculumTree lectures={questionLectures} academicYears={questionAcademicYears} coursesByYear={questionCoursesByYear} expandedYear={expandedQuestionYear} expandedCourse={expandedQuestionCourse} selectedYear={activeQuestionYear} selectedCourse={activeQuestionCourse} selectedLecturer={activeQuestionLecturer} allSelected={allQuestionsSelected} isCurrentSection={view === "questions"} countItems={(items) => items.reduce((total, lecture) => total + lecture.questions.length, 0)} onSelectYear={(year) => { setAllQuestionsSelected(false); setActiveQuestionYear(year); setActiveQuestionCourse("All courses"); setActiveQuestionLecturer(ALL_LECTURERS); setExpandedQuestionYear(year); setView("questions"); }} onSelectCourse={(year, course, courseKey) => { setAllQuestionsSelected(false); setActiveQuestionYear(year); setActiveQuestionCourse(course); setActiveQuestionLecturer(ALL_LECTURERS); setExpandedQuestionCourse((current) => current === courseKey ? null : courseKey); setView("questions"); }} onSelectLecturer={(year, course, lecturer) => { setAllQuestionsSelected(false); setActiveQuestionYear(year); setActiveQuestionCourse(course); setActiveQuestionLecturer(lecturer); setView("questions"); }} />}
-          </section>
-          <section className="nav-section preread-nav-section">
-            <button className={`nav-root ${view === "prereads" && preReadFilter === "all" ? "active" : ""}`} aria-expanded={preReadTreeExpanded} onClick={selectPreReadRoot}><span className={`nav-caret ${preReadTreeExpanded ? "expanded" : ""}`}>›</span><AppIcon name="file"/><strong>Pre-reads</strong></button>
-            {preReadTreeExpanded && <div className="nav-tree preread-tree">
-              {(["unread", "read", "rereview"] as const).map((status) => <button key={status} className={`tree-all ${view === "prereads" && preReadFilter === status ? "active" : ""}`} onClick={() => { setPreReadFilter(status); setView("prereads"); }}><span>{preReadStatusLabel[status]}</span></button>)}
-            </div>}
-          </section>
-        </nav>
-        <div className="side-bottom">{cloudSession ? <div className="cloud-account"><span><strong>Cloud library</strong><small>{cloudSession.user.email}</small>{migrationRunning && migrationProgress && <small>Syncing {migrationProgress.completed} of {migrationProgress.total}</small>}</span><div className="cloud-account-actions"><button type="button" disabled={migrationRunning} onClick={() => void migrateThisDevice()}>{migrationRunning ? "Syncing…" : "Sync this device"}</button><button type="button" onClick={downloadDiagnostics}>Diagnostics</button><button type="button" disabled={migrationRunning} onClick={() => void signOutCloud()}>Sign out</button></div></div> : <p><span><strong>Device library</strong><br/><small>Cloud connection not configured</small><button className="device-diagnostics" type="button" onClick={downloadDiagnostics}>Diagnostics</button></span></p>}</div>
-      </aside>
+      <div className="live-sidebar-shell">
+        <Sidebar className="live-primary-sidebar" ariaLabel="Primary navigation" footer={<small>FCOM.lib</small>}>
+          <SidebarItem label="Home" active={view === "home"} onClick={() => setView("home")} />
+          <SidebarItem label="Lectures" active={view === "library"} onClick={selectLectureRoot} />
+          <SidebarItem label="Favorites" active={view === "favorites"} onClick={() => setView("favorites")} />
+          <SidebarItem label="SLOs" active={view === "slos"} onClick={selectSloRoot} />
+          <SidebarItem label="Question Bank" active={view === "questions"} onClick={selectQuestionRoot} />
+          <div className="live-primary-spacer" />
+          <SidebarItem label="Pre-reads" active={view === "prereads"} onClick={selectPreReadRoot} />
+        </Sidebar>
+        <Sidebar className="live-curriculum-sidebar" ariaLabel="Curriculum folders" footer={<div className="side-bottom">{cloudSession ? <div className="cloud-account"><span><strong>Cloud library</strong><small>{cloudSession.user.email}</small>{migrationRunning && migrationProgress && <small>Syncing {migrationProgress.completed} of {migrationProgress.total}</small>}</span><div className="cloud-account-actions"><button type="button" disabled={migrationRunning} onClick={() => void migrateThisDevice()}>{migrationRunning ? "Syncing…" : "Sync this device"}</button><button type="button" onClick={downloadDiagnostics}>Diagnostics</button><button type="button" disabled={migrationRunning} onClick={() => void signOutCloud()}>Sign out</button></div></div> : <p><span><strong>Device library</strong><br/><small>Cloud connection not configured</small><button className="device-diagnostics" type="button" onClick={downloadDiagnostics}>Diagnostics</button></span></p>}</div>}>
+          {view === "library" && <SidebarSection label="LECTURES"><CurriculumTree lectures={lectures} academicYears={academicYears} coursesByYear={coursesByYear} expandedYear={expandedYear} expandedCourse={expandedCourse} selectedYear={activeYear} selectedCourse={activeCourse} selectedLecturer={activeLecturer} allSelected={allLecturesSelected} isCurrentSection onToggleYear={(year) => setExpandedYear((current) => current === year ? null : year)} onToggleCourse={(courseKey) => setExpandedCourse((current) => current === courseKey ? null : courseKey)} onSelectYear={(year) => { setAllLecturesSelected(false); setActiveYear(year); setActiveCourse("All courses"); setActiveLecturer(ALL_LECTURERS); setView("library"); }} onSelectCourse={(year, course) => { setAllLecturesSelected(false); setActiveYear(year); setActiveCourse(course); setActiveLecturer(ALL_LECTURERS); setView("library"); }} onSelectLecturer={(year, course, lecturer) => { setAllLecturesSelected(false); setActiveYear(year); setActiveCourse(course); setActiveLecturer(lecturer); setView("library"); }} /></SidebarSection>}
+          {view === "slos" && <SidebarSection label="SESSION LEARNING OBJECTIVES"><CurriculumTree lectures={lectures} academicYears={academicYears} coursesByYear={coursesByYear} expandedYear={expandedSloYear} expandedCourse={expandedSloCourse} selectedYear={activeSloYear} selectedCourse={activeSloCourse} selectedLecturer={activeSloLecturer} allSelected={allSLOsSelected} isCurrentSection showCounts={false} onToggleYear={(year) => setExpandedSloYear((current) => current === year ? null : year)} onToggleCourse={(courseKey) => setExpandedSloCourse((current) => current === courseKey ? null : courseKey)} onSelectYear={(year) => { setAllSLOsSelected(false); setActiveSloYear(year); setActiveSloCourse("All courses"); setActiveSloLecturer(ALL_LECTURERS); setView("slos"); }} onSelectCourse={(year, course) => { setAllSLOsSelected(false); setActiveSloYear(year); setActiveSloCourse(course); setActiveSloLecturer(ALL_LECTURERS); setView("slos"); }} onSelectLecturer={(year, course, lecturer) => { setAllSLOsSelected(false); setActiveSloYear(year); setActiveSloCourse(course); setActiveSloLecturer(lecturer); setView("slos"); }} /></SidebarSection>}
+          {view === "questions" && <SidebarSection label="QUESTION BANK"><CurriculumTree lectures={questionLectures} academicYears={questionAcademicYears} coursesByYear={questionCoursesByYear} expandedYear={expandedQuestionYear} expandedCourse={expandedQuestionCourse} selectedYear={activeQuestionYear} selectedCourse={activeQuestionCourse} selectedLecturer={activeQuestionLecturer} allSelected={allQuestionsSelected} isCurrentSection countItems={(items) => items.reduce((total, lecture) => total + lecture.questions.length, 0)} onToggleYear={(year) => setExpandedQuestionYear((current) => current === year ? null : year)} onToggleCourse={(courseKey) => setExpandedQuestionCourse((current) => current === courseKey ? null : courseKey)} onSelectYear={(year) => { setAllQuestionsSelected(false); setActiveQuestionYear(year); setActiveQuestionCourse("All courses"); setActiveQuestionLecturer(ALL_LECTURERS); setView("questions"); }} onSelectCourse={(year, course) => { setAllQuestionsSelected(false); setActiveQuestionYear(year); setActiveQuestionCourse(course); setActiveQuestionLecturer(ALL_LECTURERS); setView("questions"); }} onSelectLecturer={(year, course, lecturer) => { setAllQuestionsSelected(false); setActiveQuestionYear(year); setActiveQuestionCourse(course); setActiveQuestionLecturer(lecturer); setView("questions"); }} /></SidebarSection>}
+          {view === "prereads" && <SidebarSection label="PRE-READS"><SidebarItem label="All pre-reads" active={preReadFilter === "all"} onClick={() => setPreReadFilter("all")} />{(["unread", "read", "rereview"] as const).map((status) => <SidebarItem key={status} label={preReadStatusLabel[status]} active={preReadFilter === status} onClick={() => setPreReadFilter(status)} />)}</SidebarSection>}
+          {!["library", "slos", "questions", "prereads"].includes(view) && <div className="live-sidebar-context"><small>FCOM.lib</small><p>Select Lectures, SLOs, Question Bank, or Pre-reads to browse its curriculum folders.</p></div>}
+        </Sidebar>
+      </div>
 
       <section className="workspace">
         <header className="topbar">
@@ -1462,7 +1439,7 @@ export default function Home() {
               <label><span>Curriculum week</span><select value={weekDraft} onChange={(event) => setWeekDraft(event.target.value)}><option value="">Unassigned</option>{LECTURE_WEEK_OPTIONS.map((week) => <option key={week} value={week}>Week {week}</option>)}</select></label>
               <div><button onClick={() => setEditingMetadataId("")}>Cancel</button><button className="save-metadata" onClick={() => saveLectureMetadata(displayActive)}>Save details</button></div>
             </div> : <div className="lecture-details"><span><small>Course</small>{displayActive.academicYear} / {displayActive.course}</span><span><small>Lecturer</small>{displayActive.lecturer}</span><span><small>Week</small>{lectureWeekLabel(displayActive.week)}</span><button onClick={() => startMetadataEdit(displayActive)}>Edit details</button><button onClick={() => openQuestionBuilder(displayActive.id)}>Draft questions</button></div>}
-            <div className="section-head"><h3>Session learning objectives</h3><button onClick={() => { setAllSLOsSelected(false); setFlaggedSLOsSelected(false); setActiveSloYear(displayActive.academicYear); setActiveSloCourse(displayActive.course); setActiveSloLecturer(ALL_LECTURERS); setExpandedSloYear(displayActive.academicYear); setExpandedSloCourse(`${displayActive.academicYear}::${displayActive.course}`); setSloTreeExpanded(true); setView("slos"); }}>View course SLOs</button></div>
+            <div className="section-head"><h3>Session learning objectives</h3><button onClick={() => { setAllSLOsSelected(false); setFlaggedSLOsSelected(false); setActiveSloYear(displayActive.academicYear); setActiveSloCourse(displayActive.course); setActiveSloLecturer(ALL_LECTURERS); setExpandedSloYear(displayActive.academicYear); setExpandedSloCourse(`${displayActive.academicYear}::${displayActive.course}`); setView("slos"); }}>View course SLOs</button></div>
             <ol className="slo-preview">{displayActive.slos.map((slo, index) => <li key={slo}><span>{index + 1}</span><p>{slo}</p></li>)}</ol>
             {displayActive.outline.length > 0 && <><div className="section-head"><h3>Session outline</h3></div><ol className="outline-list">{displayActive.outline.map((section, index) => <li key={section}><span>{index + 1}</span><p>{section}</p></li>)}</ol></>}
           </aside>}

@@ -11,6 +11,11 @@
   to = "/index.html"
   status = 200
 
+[[headers]]
+  for = "/assets/pdf.worker.min.mjs"
+  [headers.values]
+    Cache-Control = "public, max-age=0, must-revalidate"
+
 [build.environment]
   NODE_VERSION = "22.13.0"
   PNPM_VERSION = "11.16.0"

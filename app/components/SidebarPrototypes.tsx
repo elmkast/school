@@ -14,12 +14,13 @@ const prototypeDescriptions: Record<Variant, { title: string; recommendation?: s
 function CurriculumFixture({ active, onSelect, includeRoots = true }: { active: string; onSelect: (value: string) => void; includeRoots?: boolean }) {
   const [yearOpen, setYearOpen] = useState(true);
   const [mcfOpen, setMcfOpen] = useState(true);
+  const [imdOpen, setImdOpen] = useState(false);
   return <>
     {includeRoots && <SidebarItem label="Lectures" count={19} expandable expanded active={active === "lectures"} onClick={() => onSelect("lectures")} />}
     <SidebarTree>
-      <SidebarTreeItem label="2026–2027" count={19} depth={includeRoots ? 1 : 0} expandable expanded={yearOpen} active={active === "year"} onClick={() => { setYearOpen((value) => !value); onSelect("year"); }} />
+      <SidebarTreeItem label="2026–2027" count={19} depth={includeRoots ? 1 : 0} expandable expanded={yearOpen} active={active === "year"} onClick={() => onSelect("year")} onToggle={() => setYearOpen((value) => !value)} />
       {yearOpen && <>
-        <SidebarTreeItem label="MCF" count={19} depth={includeRoots ? 2 : 1} expandable expanded={mcfOpen} active={active === "mcf"} onClick={() => { setMcfOpen((value) => !value); onSelect("mcf"); }} />
+        <SidebarTreeItem label="MCF" count={19} depth={includeRoots ? 2 : 1} expandable expanded={mcfOpen} active={active === "mcf"} onClick={() => onSelect("mcf")} onToggle={() => setMcfOpen((value) => !value)} />
         {mcfOpen && <>
           <SidebarTreeItem label="Huwe" count={3} depth={includeRoots ? 3 : 2} active={active === "huwe"} onClick={() => onSelect("huwe")} />
           <SidebarTreeItem label="Kuehn" count={2} depth={includeRoots ? 3 : 2} active={active === "kuehn"} onClick={() => onSelect("kuehn")} />
@@ -27,8 +28,9 @@ function CurriculumFixture({ active, onSelect, includeRoots = true }: { active: 
           <SidebarTreeItem label="Rinaldi" count={2} depth={includeRoots ? 3 : 2} active={active === "rinaldi"} onClick={() => onSelect("rinaldi")} />
           <SidebarTreeItem label="Vansal" count={2} depth={includeRoots ? 3 : 2} active={active === "vansal"} onClick={() => onSelect("vansal")} />
         </>}
-        <SidebarTreeItem label="IMD" count={0} depth={includeRoots ? 2 : 1} expandable active={active === "imd"} onClick={() => onSelect("imd")} />
-        <SidebarTreeItem label="Hem Onc" count={0} depth={includeRoots ? 2 : 1} expandable active={active === "heme"} onClick={() => onSelect("heme")} />
+        <SidebarTreeItem label="IMD" count={4} depth={includeRoots ? 2 : 1} expandable expanded={imdOpen} active={active === "imd"} onClick={() => onSelect("imd")} onToggle={() => setImdOpen((value) => !value)} />
+        {imdOpen && <SidebarTreeItem label="Nguyen" count={4} depth={includeRoots ? 3 : 2} active={active === "nguyen"} onClick={() => onSelect("nguyen")} />}
+        <SidebarTreeItem label="Hem Onc" count={0} depth={includeRoots ? 2 : 1} expandable active={active === "heme"} onClick={() => onSelect("heme")} onToggle={() => undefined} />
       </>}
     </SidebarTree>
   </>;

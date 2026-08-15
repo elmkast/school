@@ -24,6 +24,7 @@ type SidebarItemProps = {
   expandable?: boolean;
   quiet?: boolean;
   onClick?: () => void;
+  onToggle?: () => void;
 };
 
 export function Sidebar({ children, className = "", footer, ariaLabel = "Curriculum navigation" }: SidebarProps) {
@@ -40,12 +41,11 @@ export function SidebarSection({ children, className = "", label }: SidebarSecti
   </section>;
 }
 
-export function SidebarItem({ label, active = false, count, depth = 0, expanded = false, expandable = false, quiet = false, onClick }: SidebarItemProps) {
-  return <button type="button" className={`sidebar-system-item ${active ? "active" : ""} ${quiet ? "quiet" : ""}`.trim()} style={{ "--sidebar-depth": depth } as CSSProperties} aria-current={active ? "page" : undefined} aria-expanded={expandable ? expanded : undefined} onClick={onClick}>
-    {expandable ? <span className={`sidebar-system-chevron ${expanded ? "expanded" : ""}`} aria-hidden="true">›</span> : <span className="sidebar-system-spacer" />}
-    <span className="sidebar-system-label">{label}</span>
-    {typeof count === "number" && <SidebarCount value={count} />}
-  </button>;
+export function SidebarItem({ label, active = false, count, depth = 0, expanded = false, expandable = false, quiet = false, onClick, onToggle }: SidebarItemProps) {
+  return <div className={`sidebar-system-item ${active ? "active" : ""} ${quiet ? "quiet" : ""}`.trim()} style={{ "--sidebar-depth": depth } as CSSProperties}>
+    {expandable ? <button type="button" className="sidebar-system-toggle" aria-label={`${expanded ? "Collapse" : "Expand"} ${label}`} aria-expanded={expanded} onClick={onToggle}><span className={`sidebar-system-chevron ${expanded ? "expanded" : ""}`} aria-hidden="true">›</span></button> : <span className="sidebar-system-spacer" />}
+    <button type="button" className="sidebar-system-destination" aria-current={active ? "page" : undefined} onClick={onClick}><span className="sidebar-system-label">{label}</span>{typeof count === "number" && <SidebarCount value={count} />}</button>
+  </div>;
 }
 
 export function SidebarTree({ children }: { children: ReactNode }) {
