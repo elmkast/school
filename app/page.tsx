@@ -754,6 +754,42 @@ export default function Home() {
     setNotice("Question removed.");
   }
 
+  async function deleteCurrentQuizQuestion() {
+    const currentQuestion = quizQuestions[quizIndex];
+    if (!currentQuestion || !window.confirm("Delete this question from the Question Bank? This cannot be undone.")) return;
+
+    const lecture = lectures.find((item) => item.id === currentQuestion.lectureId);
+    if (!lecture) {
+      setNotice("This question could not be matched to its lecture.");
+      return;
+    }
+
+    const updated = {
+      ...lecture,
+      questions: lecture.questions.filter((question) => question.id !== currentQuestion.question.id),
+    };
+    await saveLecture(updated);
+    setLectures((current) => current.map((item) => item.id === lecture.id ? updated : item));
+
+    const remainingQuestions = quizQuestions.filter((question) => question.key !== currentQuestion.key);
+    setQuizResponses((responses) => {
+      const next = { ...responses };
+      delete next[currentQuestion.key];
+      return next;
+    });
+
+    if (!remainingQuestions.length) {
+      finishQuiz();
+      setNotice("Question deleted. The quiz ended because no questions remain.");
+      return;
+    }
+
+    setQuizQuestions(remainingQuestions);
+    setQuizIndex((index) => Math.min(index, remainingQuestions.length - 1));
+    setQuizReviewIndex(0);
+    setNotice("Question deleted from the Question Bank and removed from this quiz.");
+  }
+
   function openQuizBuilder() {
     const defaults = visibleQuestionLectures.length ? visibleQuestionLectures : questionLectures;
     const ids = new Set(defaults.map((lecture) => lecture.id));
@@ -1561,7 +1597,7 @@ export default function Home() {
                   {currentQuizQuestion.question.explanation && <div><small>Explanation</small><p>{currentQuizQuestion.question.explanation}</p></div>}
                   {currentQuizQuestion.question.type === "short-answer" && currentQuizResponse.correct === null && <div className="quiz-self-grade"><span>How did you do?</span><button onClick={() => gradeShortAnswer(false)}>Mark incorrect</button><button onClick={() => gradeShortAnswer(true)}>Mark correct</button></div>}
                 </div>}
-                <footer>{!currentQuizResponse.submitted ? <button className="quiz-submit-answer" disabled={!currentQuizResponse.response.trim()} onClick={submitQuizAnswer}>Submit answer</button> : <button className="quiz-next-question" disabled={currentQuizQuestion.question.type === "short-answer" && currentQuizResponse.correct === null} onClick={advanceQuiz}>{quizIndex >= quizQuestions.length - 1 ? "See results" : "Next question"}</button>}</footer>
+                <footer><button className="quiz-delete-question" onClick={() => void deleteCurrentQuizQuestion()}>Delete question</button>{!currentQuizResponse.submitted ? <button className="quiz-submit-answer" disabled={!currentQuizResponse.response.trim()} onClick={submitQuizAnswer}>Submit answer</button> : <button className="quiz-next-question" disabled={currentQuizQuestion.question.type === "short-answer" && currentQuizResponse.correct === null} onClick={advanceQuiz}>{quizIndex >= quizQuestions.length - 1 ? "See results" : "Next question"}</button>}</footer>
               </article>
             </div>
           </>}
