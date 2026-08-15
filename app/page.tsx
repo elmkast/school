@@ -11,6 +11,8 @@ import { searchMatchScore, searchResultCollectionTitle, searchResultWeek, type L
 import { shuffleItems, type QuestionDraft, type QuizMode, type QuizQuestion, type QuizResponse } from "../lib/questions";
 import { seedLectures } from "../lib/seed-lectures";
 import { AppIcon } from "./components/AppIcon";
+import { CurriculumCard } from "./components/CurriculumCard";
+import { CurriculumPageToolbar } from "./components/CurriculumPageToolbar";
 import { CurriculumTree } from "./components/CurriculumTree";
 import { PdfCanvasViewer } from "./components/PdfCanvasViewer";
 
@@ -1405,27 +1407,12 @@ export default function Home() {
 
         {(view === "library" || view === "favorites") && <div className={`content-grid ${displayActive ? "" : "single-column"}`}>
           <section className="library-panel">
-            <div className="page-toolbar"><div className="eyebrow">{view === "favorites" ? "SAVED LECTURES" : libraryLocationLabel}</div><div className="lecture-toolbar-controls"><label className="sort-control"><span>Filter by</span><select aria-label="Filter lectures by curriculum week" value={lectureWeekFilter} onChange={(event) => setLectureWeekFilter(event.target.value)}><option value="all">All weeks</option>{LECTURE_WEEK_OPTIONS.map((week) => <option key={week} value={week}>Week {week}</option>)}<option value="unassigned">Week unassigned</option></select></label><label className="sort-control"><span>Sort by</span><select value={lectureSort} onChange={(event) => setLectureSort(event.target.value as "week-asc" | "name-asc")}><option value="week-asc">Week · earliest first</option><option value="name-asc">Name · A–Z</option></select></label></div></div>
+            <CurriculumPageToolbar heading={<div className="eyebrow">{view === "favorites" ? "SAVED LECTURES" : libraryLocationLabel}</div>} filters={<><label className="sort-control"><span>Filter by</span><select aria-label="Filter lectures by curriculum week" value={lectureWeekFilter} onChange={(event) => setLectureWeekFilter(event.target.value)}><option value="all">All weeks</option>{LECTURE_WEEK_OPTIONS.map((week) => <option key={week} value={week}>Week {week}</option>)}<option value="unassigned">Week unassigned</option></select></label><label className="sort-control"><span>Sort by</span><select value={lectureSort} onChange={(event) => setLectureSort(event.target.value as "week-asc" | "name-asc")}><option value="week-asc">Week · earliest first</option><option value="name-asc">Name · A–Z</option></select></label></>} />
             {view === "library" && <button className={`dropzone top-dropzone ${dragging ? "dragging" : ""}`} onClick={() => fileInput.current?.click()} onDragOver={(e) => { e.preventDefault(); setDragging(true); }} onDragLeave={() => setDragging(false)} onDrop={(e) => { e.preventDefault(); setDragging(false); if (e.dataTransfer.files.length) enqueueFiles(e.dataTransfer.files); }}>
               <span><AppIcon name="upload"/></span><strong>Drop one or more lectures here</strong><small>PDF · Import to {currentImportDestination.label}</small>
             </button>}
             <div className="lecture-list">
-              {visibleLectures.map((lecture) => <article key={lecture.id} className={`lecture-card ${displayActive?.id === lecture.id ? "selected" : ""}`}>
-                <button className="lecture-open" onClick={() => setActiveId(lecture.id)}>
-                  <span className="lecture-copy"><small>{lecture.course.toUpperCase()}</small><strong>{lecture.title}</strong><em>{lecture.lecturer} · {lectureWeekLabel(lecture.week)}</em></span>
-                </button>
-                <label className="lecture-week-control">
-                  <select aria-label={`Curriculum week for ${lecture.title}`} value={lecture.week ?? ""} onChange={(event) => updateLectureWeek(lecture, event.target.value)}>
-                    <option value="">Week —</option>
-                    {LECTURE_WEEK_OPTIONS.map((week) => <option key={week} value={week}>Week {week}</option>)}
-                  </select>
-                </label>
-                <div className="lecture-card-rail">
-                  <button className="lecture-slo-peek" aria-label={`Preview ${lecture.slos.length} session learning objectives`}><b>{lecture.slos.length} SLO{lecture.slos.length === 1 ? "" : "s"}</b></button><span className="slo-tooltip" role="tooltip"><strong>Session learning objectives</strong>{lecture.slos.length > 0 ? <ol>{lecture.slos.map((slo, index) => <li key={`${index}-${slo}`}>{slo}</li>)}</ol> : <p>No SLOs were extracted for this lecture.</p>}</span>
-                  <button className="card-open-brief" onClick={() => { setActiveId(lecture.id); openLectureBrief(lecture.id); }}><span>Open lecture</span><AppIcon name="arrow"/></button>
-                </div>
-                <span className="lecture-actions"><button className={lecture.favorite ? "favorited" : ""} aria-label={lecture.favorite ? "Remove from favorites" : "Add to favorites"} title={lecture.favorite ? "Remove from favorites" : "Add to favorites"} onClick={() => toggleFavorite(lecture.id)}><AppIcon name="star"/></button><button className="remove-action" aria-label="Remove lecture" title="Remove lecture" onClick={() => removeLecture(lecture.id)}><AppIcon name="trash"/></button></span>
-              </article>)}
+              {visibleLectures.map((lecture) => <CurriculumCard key={lecture.id} title={lecture.title} course={lecture.course} lecturer={lecture.lecturer} week={lecture.week} selected={displayActive?.id === lecture.id} countLabel={`${lecture.slos.length} SLO${lecture.slos.length === 1 ? "" : "s"}`} primaryActionLabel="Open lecture" onPrimaryAction={() => { setActiveId(lecture.id); openLectureBrief(lecture.id); }} onSelect={() => setActiveId(lecture.id)} weekEditable onWeekChange={(value) => void updateLectureWeek(lecture, value)} countTooltip={<><strong>Session learning objectives</strong>{lecture.slos.length > 0 ? <ol>{lecture.slos.map((slo, index) => <li key={`${index}-${slo}`}>{slo}</li>)}</ol> : <p>No SLOs were extracted for this lecture.</p>}</>} favorite={lecture.favorite} onToggleFavorite={() => void toggleFavorite(lecture.id)} onRemove={() => void removeLecture(lecture.id)} />)}
               {visibleLectures.length === 0 && <div className="library-empty"><AppIcon name={view === "favorites" ? "star" : "folder"}/><strong>{view === "favorites" ? "No favorite lectures yet" : "This folder is empty"}</strong><span>{view === "favorites" ? "Use the star on any lecture to keep it here." : "Add a PDF to this academic year and course."}</span></div>}
             </div>
           </section>
@@ -1486,44 +1473,36 @@ export default function Home() {
         </section>}
 
         {view === "slos" && <section className="full-page slo-page">
-          <div className="page-toolbar"><div>{allSLOsSelected ? <div className="eyebrow">SESSION LEARNING OBJECTIVES</div> : <nav className="slo-breadcrumbs" aria-label="SLO folders">
+          <CurriculumPageToolbar heading={allSLOsSelected ? <div className="eyebrow">SESSION LEARNING OBJECTIVES</div> : <nav className="slo-breadcrumbs" aria-label="SLO folders">
               <button onClick={() => { setActiveSloCourse("All courses"); setActiveSloLecturer(ALL_LECTURERS); setExpandedSloYear(activeSloYear); }}>{activeSloYear}</button>
               {activeSloCourse !== "All courses" && <><span>·</span><button onClick={() => setActiveSloLecturer(ALL_LECTURERS)}>{activeSloCourse}</button></>}
               {activeSloLecturer !== ALL_LECTURERS && <><span>·</span><button onClick={() => setActiveSloLecturer(activeSloLecturer)}>{lecturerFolderLabel(activeSloLecturer)}</button></>}
-            </nav>}</div><div className="page-toolbar-actions"><div className="lecture-toolbar-controls"><label className="sort-control"><span>Filter by</span><select aria-label="Filter SLOs" value={sloFilterValue} onChange={(event) => { const value = event.target.value; setFlaggedSLOsSelected(value === "flagged"); if (value !== "flagged") setSloWeekFilter(value); }}><option value="all">All SLOs</option><option value="flagged">Flagged SLOs</option>{LECTURE_WEEK_OPTIONS.map((week) => <option key={week} value={week}>Week {week}</option>)}<option value="unassigned">Week unassigned</option></select></label><label className="sort-control"><span>Sort by</span><select value={sloSort} onChange={(event) => setSloSort(event.target.value as "week-asc" | "name-asc")}><option value="week-asc">Week · earliest first</option><option value="name-asc">Name · A–Z</option></select></label></div><button className="convert-slo-button" onClick={openSloExport}><AppIcon name="download"/>Export SLOs</button></div></div>
-          <div className="lecture-list unified-card-list">{visibleSloLectures.map((lecture) => {
+            </nav>} filters={<><label className="sort-control"><span>Filter by</span><select aria-label="Filter SLOs" value={sloFilterValue} onChange={(event) => { const value = event.target.value; setFlaggedSLOsSelected(value === "flagged"); if (value !== "flagged") setSloWeekFilter(value); }}><option value="all">All SLOs</option><option value="flagged">Flagged SLOs</option>{LECTURE_WEEK_OPTIONS.map((week) => <option key={week} value={week}>Week {week}</option>)}<option value="unassigned">Week unassigned</option></select></label><label className="sort-control"><span>Sort by</span><select value={sloSort} onChange={(event) => setSloSort(event.target.value as "week-asc" | "name-asc")}><option value="week-asc">Week · earliest first</option><option value="name-asc">Name · A–Z</option></select></label></>} actions={<button className="convert-slo-button" onClick={openSloExport}><AppIcon name="download"/>Export SLOs</button>} />
+          <div className="lecture-list curriculum-card-list">{visibleSloLectures.map((lecture) => {
             const expanded = expandedSloLectureIds.has(lecture.id);
             const entries = lecture.slos.map((slo, index) => ({ slo, index })).filter(({ index }) => !flaggedSLOsSelected || lecture.flaggedSLOs.includes(index));
             const toggleExpanded = () => setExpandedSloLectureIds((current) => { const next = new Set(current); if (expanded) next.delete(lecture.id); else next.add(lecture.id); return next; });
-            return <article key={lecture.id} className={`lecture-card unified-curriculum-card ${expanded ? "expanded" : ""}`}>
-              <button className="lecture-open" onClick={toggleExpanded}>
-                <span className="lecture-copy"><small>{lecture.course.toUpperCase()}</small><strong>{lecture.title}</strong><em>{lecture.lecturer} · {lectureWeekLabel(lecture.week)}</em></span>
-              </button>
-              <span className="lecture-week-control lecture-week-display unified-week-control" aria-label={`Curriculum week: ${lectureWeekLabel(lecture.week)}`}>{lectureWeekLabel(lecture.week)}</span>
-              <div className="lecture-card-rail"><span className="catalog-count">{lecture.slos.length} SLO{lecture.slos.length === 1 ? "" : "s"}</span><button className="card-open-brief" onClick={toggleExpanded}><span>{expanded ? "Hide SLOs" : "View SLOs"}</span><AppIcon name="arrow"/></button></div>
-              {expanded && <div className="unified-card-content"><ol>{entries.map(({ slo, index }) => {
+            return <CurriculumCard key={lecture.id} title={lecture.title} course={lecture.course} lecturer={lecture.lecturer} week={lecture.week} countLabel={`${lecture.slos.length} SLO${lecture.slos.length === 1 ? "" : "s"}`} primaryActionLabel={expanded ? "Hide SLOs" : "View SLOs"} onPrimaryAction={toggleExpanded} expanded={expanded}>
+              <div className="curriculum-card-content"><ol>{entries.map(({ slo, index }) => {
               const flagged = lecture.flaggedSLOs.includes(index);
               return <li key={`${index}-${slo}`}><span>{index + 1}</span><p>{slo}</p><button className={`slo-flag ${flagged ? "flagged" : ""}`} aria-label={flagged ? "Unflag this SLO" : "Flag this SLO"} aria-pressed={flagged} title={flagged ? "Remove flag" : "Flag for review"} onClick={() => toggleSloFlag(lecture.id, index)}><AppIcon name="flag"/></button></li>;
-              })}</ol><footer><button className="secondary-card-action" onClick={() => openSloReparse(lecture.id)}>Luna re-parse</button><button className="primary-card-action" onClick={() => openLectureBrief(lecture.id)}>Open lecture</button></footer></div>}
-            </article>;
+              })}</ol><footer><button className="secondary-card-action" onClick={() => openSloReparse(lecture.id)}>Luna re-parse</button><button className="primary-card-action" onClick={() => openLectureBrief(lecture.id)}>Open lecture</button></footer></div>
+            </CurriculumCard>;
           })}</div>
           {visibleSloLectures.length === 0 && <div className="empty-state"><AppIcon name="target"/><strong>{flaggedSLOsSelected ? "No flagged SLOs yet" : "No SLOs in this folder yet"}</strong><span>{flaggedSLOsSelected ? "Use the flag beside any SLO to keep it here for review." : "Upload a lecture or choose another folder from the SLO tree."}</span></div>}
         </section>}
 
         {view === "questions" && <section className="full-page question-bank-page">
-          <div className="page-toolbar"><div>{allQuestionsSelected ? <div className="eyebrow">QUESTION BANK</div> : <nav className="slo-breadcrumbs" aria-label="Question bank folders">
+          <CurriculumPageToolbar heading={allQuestionsSelected ? <div className="eyebrow">QUESTION BANK</div> : <nav className="slo-breadcrumbs" aria-label="Question bank folders">
             <button onClick={() => { setActiveQuestionCourse("All courses"); setActiveQuestionLecturer(ALL_LECTURERS); setExpandedQuestionYear(activeQuestionYear); }}>{activeQuestionYear}</button>
             {activeQuestionCourse !== "All courses" && <><span>·</span><button onClick={() => setActiveQuestionLecturer(ALL_LECTURERS)}>{activeQuestionCourse}</button></>}
             {activeQuestionLecturer !== ALL_LECTURERS && <><span>·</span><button>{lecturerFolderLabel(activeQuestionLecturer)}</button></>}
-          </nav>}</div><div className="page-toolbar-actions"><div className="lecture-toolbar-controls"><label className="sort-control"><span>Filter by</span><select aria-label="Filter question bank by curriculum week" value={questionWeekFilter} onChange={(event) => setQuestionWeekFilter(event.target.value)}><option value="all">All weeks</option>{LECTURE_WEEK_OPTIONS.map((week) => <option key={week} value={week}>Week {week}</option>)}<option value="unassigned">Week unassigned</option></select></label><label className="sort-control"><span>Sort by</span><select value={questionSort} onChange={(event) => setQuestionSort(event.target.value as "week-asc" | "name-asc")}><option value="week-asc">Week · earliest first</option><option value="name-asc">Name · A–Z</option></select></label></div><div className="question-bank-actions"><button className="take-quiz-trigger" disabled={totalQuestionCount === 0} onClick={openQuizBuilder}>Take quiz</button><button className="question-draft-trigger" onClick={() => openQuestionBuilder()}>Draft with Luna</button></div></div></div>
-          {visibleQuestionLectures.length > 0 ? <div className="lecture-list unified-card-list">{visibleQuestionLectures.map((lecture) => {
+          </nav>} filters={<><label className="sort-control"><span>Filter by</span><select aria-label="Filter question bank by curriculum week" value={questionWeekFilter} onChange={(event) => setQuestionWeekFilter(event.target.value)}><option value="all">All weeks</option>{LECTURE_WEEK_OPTIONS.map((week) => <option key={week} value={week}>Week {week}</option>)}<option value="unassigned">Week unassigned</option></select></label><label className="sort-control"><span>Sort by</span><select value={questionSort} onChange={(event) => setQuestionSort(event.target.value as "week-asc" | "name-asc")}><option value="week-asc">Week · earliest first</option><option value="name-asc">Name · A–Z</option></select></label></>} actions={<div className="question-bank-actions"><button className="take-quiz-trigger" disabled={totalQuestionCount === 0} onClick={openQuizBuilder}>Take quiz</button><button className="question-draft-trigger" onClick={() => openQuestionBuilder()}>Draft with Luna</button></div>} />
+          {visibleQuestionLectures.length > 0 ? <div className="lecture-list curriculum-card-list">{visibleQuestionLectures.map((lecture) => {
             const expanded = expandedQuestionBankLectureIds.has(lecture.id);
             const toggleExpanded = () => setExpandedQuestionBankLectureIds((current) => { const next = new Set(current); if (expanded) next.delete(lecture.id); else next.add(lecture.id); return next; });
-            return <article className={`lecture-card unified-curriculum-card ${expanded ? "expanded" : ""}`} key={lecture.id}>
-            <button className="lecture-open" onClick={toggleExpanded}><span className="lecture-copy"><small>{lecture.course.toUpperCase()}</small><strong>{lecture.title}</strong><em>{lecture.lecturer} · {lectureWeekLabel(lecture.week)}</em></span></button>
-            <span className="lecture-week-control lecture-week-display unified-week-control" aria-label={`Curriculum week: ${lectureWeekLabel(lecture.week)}`}>{lectureWeekLabel(lecture.week)}</span>
-            <div className="lecture-card-rail"><span className="catalog-count">{lecture.questions.length} question{lecture.questions.length === 1 ? "" : "s"}</span><button className="card-open-brief" onClick={toggleExpanded}><span>{expanded ? "Hide questions" : "View questions"}</span><AppIcon name="arrow"/></button></div>
-            {expanded && <div className="unified-card-content question-list">{lecture.questions.map((question, index) => {
+            return <CurriculumCard key={lecture.id} title={lecture.title} course={lecture.course} lecturer={lecture.lecturer} week={lecture.week} countLabel={`${lecture.questions.length} question${lecture.questions.length === 1 ? "" : "s"}`} primaryActionLabel={expanded ? "Hide questions" : "View questions"} onPrimaryAction={toggleExpanded} expanded={expanded}>
+            <div className="curriculum-card-content question-list">{lecture.questions.map((question, index) => {
               const revealed = revealedQuestionIds.has(question.id);
               return <article className="bank-question" key={question.id}>
                 <div className="question-meta"><span>Q{index + 1}</span><small>{question.type === "multiple-choice" ? "Multiple choice" : "Short answer"}</small><div>{question.sourcePages.map((page) => <button key={page} onClick={() => openLectureBrief(lecture.id, page)}>Page {page}</button>)}</div></div>
@@ -1532,8 +1511,8 @@ export default function Home() {
                 {revealed && <div className="question-answer"><strong>Answer</strong><p>{question.answer}</p>{question.explanation && <><strong>Explanation</strong><p>{question.explanation}</p></>}</div>}
                 <footer><button onClick={() => setRevealedQuestionIds((current) => { const next = new Set(current); if (revealed) next.delete(question.id); else next.add(question.id); return next; })}>{revealed ? "Hide answer" : "Show answer"}</button><button className="remove-question" onClick={() => void removeQuestion(lecture.id, question.id)}>Remove</button></footer>
               </article>;
-            })}</div>}
-          </article>;
+            })}</div>
+          </CurriculumCard>;
           })}</div> : <div className="home-empty"><strong>No approved questions here yet</strong><span>Select lectures or individual slides and ask Luna to draft the first set.</span><button onClick={() => openQuestionBuilder()}>Draft questions</button></div>}
         </section>}
 

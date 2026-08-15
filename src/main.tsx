@@ -1,6 +1,7 @@
 import { Component, StrictMode, type ErrorInfo, type ReactNode } from "react";
 import { createRoot } from "react-dom/client";
 import Home from "../app/page";
+import { ComponentReview } from "../app/components/ComponentReview";
 import "../app/globals.css";
 import { downloadDiagnostics, installGlobalDiagnostics, recordDiagnostic } from "../lib/diagnostics";
 
@@ -24,4 +25,6 @@ class AppErrorBoundary extends Component<{ children: ReactNode }, { failed: bool
   }
 }
 
-createRoot(document.getElementById("root")!).render(<StrictMode><AppErrorBoundary><Home /></AppErrorBoundary></StrictMode>);
+const reviewMode = window.location.pathname === "/ui-review";
+
+createRoot(document.getElementById("root")!).render(<StrictMode><AppErrorBoundary>{reviewMode ? <ComponentReview /> : <Home />}</AppErrorBoundary></StrictMode>);
