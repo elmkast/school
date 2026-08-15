@@ -216,7 +216,7 @@ Status definitions:
 
 | Feature | Status | Current behavior | Production requirement |
 |---|---|---|---|
-| Luna question drafting | Implemented | Generates a bounded set of multiple-choice medical-study questions from selected lecture material using a strict server-side structured-output schema | Add prompt/version provenance, latency and token instrumentation, and a representative quality evaluation set |
+| Luna question drafting | Implemented | Generates up to 100 multiple-choice medical-study questions from selected lecture material; larger requests run as parallel batches of no more than 20 using the same strict server-side structured-output schema | Add prompt/version provenance, latency and token instrumentation, duplicate detection across batches, and a representative quality evaluation set |
 | Flexible source selection | Implemented | Select entire courses, one or more lectures, or individual PDF pages; the reader also starts a draft request scoped to the current page | Add SLO-only and pre-read source modes plus selected-range support |
 | Draft review gate | Implemented | Nothing enters the bank automatically; every multiple-choice draft can be edited, approved/rejected, or removed before saving | Add duplicate-question detection and richer answer-choice validation |
 | Persistent approved questions | Implemented | Approved questions are stored with their source lecture, page references, answer, explanation, and question type, using the same local/cloud lecture persistence path | Add revision history, soft deletion, and explicit sync-conflict handling |
@@ -539,7 +539,7 @@ This mapping is now the working private-beta architecture. Future work should ha
 ### Flow F: Draft and approve study questions
 
 1. Open Question Bank and choose Draft with Luna, or start from the current PDF page.
-2. Select one or more full lectures, courses, or individual pages and optionally tell Luna what kind of questions to emphasize.
+2. Select one or more full lectures, courses, or individual pages, request up to 100 questions, and optionally tell Luna what kind of questions to emphasize.
 3. Review Luna's structured drafts; edit wording, answer choices, answer, and explanation as needed.
 4. Approve useful questions and reject or remove the rest.
 5. Open approved questions through the mirrored curriculum tree and return to any cited source page.

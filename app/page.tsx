@@ -668,7 +668,7 @@ export default function Home() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ sources, count: questionCount, instruction: questionInstruction.trim().slice(0, 2000) }),
       });
-      const data = await response.json() as { questions?: unknown; error?: string; detail?: string };
+      const data = await response.json() as { questions?: unknown; error?: string; detail?: string; warning?: string };
       if (!response.ok) throw new Error(data.error || data.detail || "Luna could not draft questions.");
       const sourcePages = new Map(sources.map((source) => [source.lectureId, new Set(source.slides.map((slide) => slide.page))]));
       const drafts = Array.isArray(data.questions) ? data.questions.flatMap((value) => {
@@ -701,6 +701,7 @@ export default function Home() {
       }) : [];
       if (!drafts.length) throw new Error("Luna did not return any usable questions.");
       setQuestionDrafts(drafts);
+      if (data.warning) setNotice(data.warning);
     } catch (error) {
       setNotice(error instanceof Error ? error.message : "Luna could not draft questions.");
     } finally {
@@ -1585,7 +1586,7 @@ export default function Home() {
             <header><div><small>LUNA QUESTION DRAFTING</small><h2 id="question-builder-title">{questionDrafts ? "Review Luna’s questions" : "Choose source material"}</h2><p>{questionDrafts ? "Edit, approve, or reject each draft before anything enters your bank." : "Select entire lectures, multiple lectures, or individual slides."}</p></div><button className="icon-button" aria-label="Close question builder" disabled={questionGenerating} onClick={() => setQuestionBuilderOpen(false)}><AppIcon name="x"/></button></header>
             {!questionDrafts ? <>
               <div className="question-builder-options">
-                <label><span>Number of questions</span><input type="number" min="1" max="20" value={questionCount} onChange={(event) => setQuestionCount(Math.min(20, Math.max(1, Number(event.target.value) || 1)))}/></label>
+                <label><span>Number of questions</span><input type="number" min="1" max="100" value={questionCount} onChange={(event) => setQuestionCount(Math.min(100, Math.max(1, Number(event.target.value) || 1)))}/><small>100 maximum</small></label>
                 <label className="question-direction"><span>Optional direction for Luna</span><textarea maxLength={2000} value={questionInstruction} onChange={(event) => setQuestionInstruction(event.target.value)} placeholder="For example: Focus on mechanisms and clinical application."/></label>
               </div>
               <div className="question-source-toolbar"><span><strong>{selectedQuestionSourceCount}</strong> source selection{selectedQuestionSourceCount === 1 ? "" : "s"}</span><div><button onClick={() => setQuestionLectureSelection(lectures.map((lecture) => lecture.id), true)}>Select all lectures</button><button onClick={() => { setSelectedQuestionLectureIds(new Set()); setSelectedQuestionSlideKeys(new Set()); }}>Clear</button></div></div>
