@@ -2,7 +2,7 @@
 
 Status: Active  
 Scope: Netlify application  
-Reference implementation: `app/components/CurriculumCard.tsx` and `app/components/CurriculumPageToolbar.tsx`
+Reference implementation: `app/components/CurriculumCard.tsx`, `app/components/CurriculumPageToolbar.tsx`, and `app/components/SidebarSystem.tsx`
 
 ## Purpose
 
@@ -75,6 +75,30 @@ Current tokens cover:
 
 New repeated visual decisions should become tokens only when they are shared by multiple components or define a system-level constraint.
 
+## Sidebar system contract
+
+Sidebar navigation is built from the shared primitives exported by `SidebarSystem.tsx`:
+
+- `Sidebar`
+- `SidebarSection`
+- `SidebarItem`
+- `SidebarTree`
+- `SidebarTreeItem`
+- `SidebarCount`
+- `SidebarDivider`
+
+These primitives own row height, indentation, chevrons, counts, focus behavior, and selection treatment. A folder may be expanded without appearing selected. At any time, only the current destination receives the active-page treatment.
+
+Decorative icons are excluded. Chevrons remain because they communicate an interactive expansion state. Counts are quiet, right-aligned text rather than badges.
+
+Three navigation models are maintained on `/ui-review` while the final direction is being selected:
+
+1. Workspace navigator: a calm, single-column expandable hierarchy. Current recommendation.
+2. Compact document tree: a denser version optimized for a large curriculum.
+3. Two-level navigator: permanent destinations in a narrow rail with a separate curriculum tree.
+
+The live product sidebar should not be migrated until a prototype is selected. Selection changes presentation only; the existing navigation and filtering behavior must be preserved.
+
 ## Component review page
 
 The internal reference page is available at `/ui-review` and uses fixture data only. It is not linked from the product navigation.
@@ -87,6 +111,7 @@ The page includes:
 - Expandable Question Bank card
 - Favorite state
 - Long-title and unassigned-week edge cases
+- Three interactive sidebar proposals using shared primitives
 
 Use this page to review system-wide component changes before modifying page-specific styling.
 

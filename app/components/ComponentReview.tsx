@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { CurriculumCard } from "./CurriculumCard";
 import { CurriculumPageToolbar } from "./CurriculumPageToolbar";
+import { SidebarPrototypes } from "./SidebarPrototypes";
 
 const fixtureSlos = [
   "Describe the regulation of glycolysis at its irreversible enzymatic steps.",
@@ -24,6 +25,11 @@ export function ComponentReview() {
 
     <section className="component-review-section">
       <CurriculumPageToolbar heading={<div className="eyebrow">CURRICULUM PAGE TOOLBAR</div>} filters={<><label className="sort-control"><span>Filter by</span><select defaultValue="all"><option value="all">All weeks</option><option value="2">Week 2</option></select></label><label className="sort-control"><span>Sort by</span><select defaultValue="week"><option value="week">Week · earliest first</option><option value="name">Name · A–Z</option></select></label></>} actions={<button className="component-review-primary">Primary action</button>} />
+    </section>
+
+    <section className="component-review-section component-review-section-wide">
+      <div className="component-review-label"><span>SIDEBAR SYSTEM PROPOSALS</span><p>Three interactive navigation models using the same hierarchy and selection state. Click rows and expand folders to compare behavior.</p></div>
+      <SidebarPrototypes />
     </section>
 
     <section className="component-review-section">
