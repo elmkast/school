@@ -5,6 +5,7 @@ export type Slide = { page: number; text: string; heading: string };
 export type InkPoint = { x: number; y: number };
 export type InkStroke = { id: string; points: InkPoint[] };
 export type QuestionType = "multiple-choice" | "short-answer";
+export type QuestionSourceKind = "lecture" | "slide" | "slo" | "preread";
 export type QuestionRecord = {
   id: string;
   type: QuestionType;
@@ -12,6 +13,10 @@ export type QuestionRecord = {
   options: string[];
   answer: string;
   explanation: string;
+  sourceKind: QuestionSourceKind;
+  sourceLectureId?: string;
+  sourcePreReadId?: string;
+  sourceSloIndexes: number[];
   sourcePages: number[];
   createdAt: string;
 };
@@ -50,6 +55,7 @@ export type PreRead = {
   sourceUrl?: string;
   text: string;
   pages: Slide[];
+  questions: QuestionRecord[];
   status: PreReadStatus;
   fileName?: string;
   createdAt: string;
@@ -163,7 +169,7 @@ function normalizeMarkups(value: unknown): Record<number, InkStroke[]> {
   return Object.fromEntries(entries);
 }
 
-function normalizeQuestions(value: unknown): QuestionRecord[] {
+function normalizeQuestions(value: unknown, owner: { lectureId?: string; preReadId?: string } = {}): QuestionRecord[] {
   if (!Array.isArray(value)) return [];
   return value.flatMap((item) => {
     if (!item || typeof item !== "object") return [];
@@ -177,6 +183,13 @@ function normalizeQuestions(value: unknown): QuestionRecord[] {
     const sourcePages = Array.isArray(record.sourcePages)
       ? Array.from(new Set(record.sourcePages.filter((page): page is number => typeof page === "number" && Number.isInteger(page) && page > 0))).sort((a, b) => a - b)
       : [];
+    const sourceSloIndexes = Array.isArray(record.sourceSloIndexes)
+      ? Array.from(new Set(record.sourceSloIndexes.filter((index): index is number => typeof index === "number" && Number.isInteger(index) && index >= 0))).sort((a, b) => a - b)
+      : [];
+    const requestedSourceKind = record.sourceKind;
+    const sourceKind: QuestionSourceKind = requestedSourceKind === "lecture" || requestedSourceKind === "slide" || requestedSourceKind === "slo" || requestedSourceKind === "preread"
+      ? requestedSourceKind
+      : owner.preReadId ? "preread" : sourcePages.length ? "slide" : "lecture";
     return [{
       id,
       type,
@@ -184,6 +197,10 @@ function normalizeQuestions(value: unknown): QuestionRecord[] {
       options,
       answer,
       explanation: textValue(record.explanation),
+      sourceKind,
+      sourceLectureId: textValue(record.sourceLectureId, owner.lectureId ?? "") || undefined,
+      sourcePreReadId: textValue(record.sourcePreReadId, owner.preReadId ?? "") || undefined,
+      sourceSloIndexes,
       sourcePages,
       createdAt: textValue(record.createdAt, new Date().toISOString()),
     }];
@@ -221,7 +238,7 @@ export function normalizeLecture(value: unknown): Lecture | null {
     markups: normalizeMarkups(lecture.markups),
     markedSlides,
     flaggedSLOs,
-    questions: normalizeQuestions(lecture.questions),
+    questions: normalizeQuestions(lecture.questions, { lectureId: id }),
     fileName: typeof lecture.fileName === "string" ? lecture.fileName : undefined,
     createdAt: textValue(lecture.createdAt, new Date(0).toISOString()),
   };
@@ -244,6 +261,7 @@ function normalizePreRead(value: unknown): PreRead | null {
     sourceUrl: typeof preRead.sourceUrl === "string" && preRead.sourceUrl.trim() ? preRead.sourceUrl.trim() : undefined,
     text: typeof preRead.text === "string" ? preRead.text : "",
     pages: normalizeSlides(preRead.pages),
+    questions: normalizeQuestions(preRead.questions, { preReadId: id }),
     status,
     fileName: typeof preRead.fileName === "string" ? preRead.fileName : undefined,
     createdAt: textValue(preRead.createdAt, new Date(0).toISOString()),

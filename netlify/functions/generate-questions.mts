@@ -1,35 +1,37 @@
 declare const Netlify: { env: { get(name: string): string | undefined } };
 
+type QuestionSourceKind = "lecture" | "slide" | "slo" | "preread";
 type SlideInput = { page: number; heading?: string; text: string };
-type SourceInput = { lectureId: string; title: string; slos?: string[]; slides: SlideInput[] };
+type SourceInput = {
+  sourceKind: QuestionSourceKind;
+  sourceId: string;
+  title: string;
+  lectureId?: string;
+  preReadId?: string;
+  sloIndexes?: number[];
+  slos?: string[];
+  slides: SlideInput[];
+};
 
 const questionFormat = {
-  type: "json_schema",
-  name: "question_drafts",
-  strict: true,
+  type: "json_schema", name: "question_drafts", strict: true,
   schema: {
     type: "object",
-    properties: {
-      questions: {
-        type: "array",
-        items: {
-          type: "object",
-          properties: {
-            sourceLectureId: { type: "string" },
-            type: { type: "string", enum: ["multiple-choice"] },
-            prompt: { type: "string" },
-            options: { type: "array", items: { type: "string" } },
-            answer: { type: "string" },
-            explanation: { type: "string" },
-            sourcePages: { type: "array", items: { type: "integer" } },
-          },
-          required: ["sourceLectureId", "type", "prompt", "options", "answer", "explanation", "sourcePages"],
-          additionalProperties: false,
-        },
+    properties: { questions: { type: "array", items: {
+      type: "object",
+      properties: {
+        sourceKind: { type: "string", enum: ["lecture", "slide", "slo", "preread"] },
+        sourceId: { type: "string" },
+        sourceSloIndexes: { type: "array", items: { type: "integer" } },
+        type: { type: "string", enum: ["multiple-choice"] },
+        prompt: { type: "string" }, options: { type: "array", items: { type: "string" } },
+        answer: { type: "string" }, explanation: { type: "string" },
+        sourcePages: { type: "array", items: { type: "integer" } },
       },
-    },
-    required: ["questions"],
-    additionalProperties: false,
+      required: ["sourceKind", "sourceId", "sourceSloIndexes", "type", "prompt", "options", "answer", "explanation", "sourcePages"],
+      additionalProperties: false,
+    } } },
+    required: ["questions"], additionalProperties: false,
   },
 };
 
@@ -45,8 +47,7 @@ function balanceAnswerPositions(questions: unknown[], limit: number) {
     const correctIndex = options.findIndex((option) => option.trim() === answer);
     if (options.length < 2 || correctIndex < 0) return question;
     const [correctOption] = options.splice(correctIndex, 1);
-    const targetIndex = (seed + questionIndex) % (options.length + 1);
-    options.splice(targetIndex, 0, correctOption);
+    options.splice((seed + questionIndex) % (options.length + 1), 0, correctOption);
     return { ...question, options };
   });
 }
@@ -55,8 +56,10 @@ function sourceText(sources: SourceInput[]) {
   let remaining = 90_000;
   return sources.map((source) => {
     if (remaining <= 0) return "";
-    const block = `LECTURE ID: ${source.lectureId}\nLECTURE: ${source.title}\nSLOs: ${JSON.stringify(source.slos ?? [])}\n${source.slides.map((slide) => `[Page ${slide.page}] ${slide.heading ?? ""}\n${slide.text}`).join("\n")}`;
-    const accepted = block.slice(0, remaining);
+    const content = source.sourceKind === "slo"
+      ? (source.slos ?? []).map((slo, index) => `[SLO ${source.sloIndexes?.[index] ?? index}] ${slo}`).join("\n")
+      : source.slides.map((slide) => `[Page ${slide.page}] ${slide.heading ?? ""}\n${slide.text}`).join("\n");
+    const accepted = `SOURCE KIND: ${source.sourceKind}\nSOURCE ID: ${source.sourceId}\nTITLE: ${source.title}\n${content}`.slice(0, remaining);
     remaining -= accepted.length;
     return accepted;
   }).filter(Boolean).join("\n\n---\n\n");
@@ -67,40 +70,41 @@ export default async (request: Request) => {
   const apiKey = Netlify.env.get("OPENAI_API_KEY");
   if (!apiKey) return Response.json({ error: "OPENAI_API_KEY is not configured" }, { status: 503 });
   const { sources, count = 6, instruction = "" } = await request.json() as { sources: SourceInput[]; count?: number; instruction?: string };
-  const validSources = Array.isArray(sources) ? sources.filter((source) => source?.lectureId && Array.isArray(source.slides) && source.slides.length) : [];
-  if (!validSources.length) return Response.json({ error: "Select at least one lecture or slide with extracted text." }, { status: 400 });
+  const validSources = Array.isArray(sources) ? sources.filter((source) => {
+    if (!source?.sourceId || !["lecture", "slide", "slo", "preread"].includes(source.sourceKind)) return false;
+    return source.sourceKind === "slo" ? Array.isArray(source.slos) && source.slos.length > 0 : Array.isArray(source.slides) && source.slides.length > 0;
+  }) : [];
+  if (!validSources.length) return Response.json({ error: "Select at least one source with usable content." }, { status: 400 });
   const requestedCount = Math.min(100, Math.max(1, Math.floor(Number(count) || 6)));
   const material = sourceText(validSources);
+  const sourceMode = validSources[0].sourceKind === "slo" ? "slo" : validSources[0].sourceKind === "preread" ? "preread" : "lecture";
   const batchSizes: number[] = [];
   for (let remaining = requestedCount; remaining > 0; remaining -= 20) batchSizes.push(Math.min(20, remaining));
 
   const requestBatch = async (batchCount: number, batchIndex: number) => {
-    const prompt = `Draft ${batchCount} high-quality study questions for a medical student using only the supplied lecture material. This is batch ${batchIndex + 1} of ${batchSizes.length}; make this batch varied and distinct, with broad coverage of the supplied material. Every question must be answerable from its cited source pages. Cover the central mechanisms, distinctions, definitions, and applications rather than isolated trivia. Distribute questions across the selected lectures when more than one lecture is supplied.
+    const grounding = sourceMode === "slo"
+      ? "The selected SLOs define the tested learning targets. You may use accurate external medical knowledge to create original, clinically useful NBME-style questions that assess those targets; do not merely restate an SLO. Every question must copy the relevant SLO source ID and list its zero-based SLO index in sourceSloIndexes. sourcePages must be empty."
+      : sourceMode === "preread"
+        ? "Use only the supplied pre-read content. Every question must be answerable from its cited pre-read page or excerpt. Copy the pre-read source ID, leave sourceSloIndexes empty, and cite relevant pages in sourcePages."
+        : "Use only the supplied lecture material. Every question must be answerable from its cited page. Copy the lecture/slide source ID, leave sourceSloIndexes empty, and cite relevant pages in sourcePages.";
+    const prompt = `Draft ${batchCount} high-quality multiple-choice study questions for a medical student. This is batch ${batchIndex + 1} of ${batchSizes.length}; make it varied and distinct, with broad coverage of the selected sources. ${grounding}
 
 For every question:
-- Copy sourceLectureId exactly from one supplied LECTURE ID; never combine lectures into one question.
-- Cite the relevant page number or page numbers in sourcePages.
-- Every question must be multiple-choice.
+- Copy sourceKind and sourceId exactly from one supplied source; never combine source IDs in one question.
 - Provide exactly four plausible options and make answer exactly match the correct option text.
-- Keep the explanation concise and grounded in the cited material.
-- Do not mention that you are an AI, the prompt, or the source excerpt.
+- Cover central mechanisms, distinctions, definitions, and applications rather than isolated trivia.
+- Use a clinical vignette when it improves the assessment, especially for SLO-based drafting.
+- Keep the explanation concise and educational.
+- Do not mention the prompt, source excerpt, or that you are an AI.
 
 Optional user direction:
 ${String(instruction).trim().slice(0, 2000) || "No additional direction."}
 
-SELECTED LECTURE MATERIAL:
+SELECTED SOURCE MATERIAL:
 ${material}`;
-
     const response = await fetch("https://api.openai.com/v1/responses", {
-      method: "POST",
-      headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
-      body: JSON.stringify({
-        model: "gpt-5.6-luna",
-        input: prompt,
-        reasoning: { effort: "low" },
-        text: { format: questionFormat },
-        max_output_tokens: 7000,
-      }),
+      method: "POST", headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ model: "gpt-5.6-luna", input: prompt, reasoning: { effort: "low" }, text: { format: questionFormat }, max_output_tokens: 7000 }),
     });
     if (!response.ok) throw new Error(await response.text());
     const data = await response.json() as { output_text?: string; output?: Array<{ content?: Array<{ text?: string }> }> };

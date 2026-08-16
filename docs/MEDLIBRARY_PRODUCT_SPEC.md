@@ -216,10 +216,10 @@ Status definitions:
 
 | Feature | Status | Current behavior | Production requirement |
 |---|---|---|---|
-| Luna question drafting | Implemented | Generates up to 100 multiple-choice medical-study questions from selected lecture material; larger requests run as parallel batches of no more than 20 using the same strict server-side structured-output schema | Add prompt/version provenance, latency and token instrumentation, duplicate detection across batches, and a representative quality evaluation set |
-| Flexible source selection | Implemented | Select entire courses, one or more lectures, or individual PDF pages; the reader also starts a draft request scoped to the current page | Add SLO-only and pre-read source modes plus selected-range support |
+| Luna question drafting | Implemented | Generates up to 100 multiple-choice medical-study questions from lecture material, selected SLOs, or assigned pre-reads; larger requests run as parallel batches of no more than 20 using the same strict server-side structured-output schema | Add prompt/version provenance, latency and token instrumentation, duplicate detection across batches, and a representative quality evaluation set |
+| Flexible source selection | Implemented | Switch between lecture/page, SLO-only, and pre-read modes; select entire folders or individual sources, with direct drafting entry points from SLO and pre-read pages | Add selected text-range support |
 | Draft review gate | Implemented | Nothing enters the bank automatically; every multiple-choice draft can be edited, approved/rejected, or removed before saving | Add duplicate-question detection and richer answer-choice validation |
-| Persistent approved questions | Implemented | Approved questions are stored with their source lecture, page references, answer, explanation, and question type, using the same local/cloud lecture persistence path | Add revision history, soft deletion, and explicit sync-conflict handling |
+| Persistent approved questions | Implemented | Approved questions preserve explicit source kind plus lecture, pre-read, SLO-index, and page provenance as applicable; pre-read questions persist with their source reading | Add revision history, soft deletion, and explicit sync-conflict handling |
 | Question Bank curriculum tree | Implemented | Mirrors the Lectures/SLO year, course, and lecturer hierarchy and counts approved questions within each folder | Add user-created sets, tags, and multi-course filters only after the core practice workflow is validated |
 | Source-page return | Implemented | Every approved question can reopen its source lecture at the cited PDF page | Highlight the supporting passage when reliable text coordinates are available |
 | Compact bank browsing | Implemented | Lecture groups are collapsed by default and show question counts, reducing the need to scroll through every full question card | Add text search and question-type filters when the bank becomes substantially larger |
@@ -231,8 +231,8 @@ Status definitions:
 
 The next Question Bank release should treat a question's source as explicit structured provenance rather than assuming every question came from a lecture page.
 
-1. **SLO-only drafting:** Select SLOs across one or more lectures and ask Luna for original NBME-style questions aligned to those objectives. This mode may use broader medical knowledge to construct a useful vignette, while retaining the selected SLOs as the pedagogic target and clearly distinguishing them from page-grounded questions.
-2. **Pre-read drafting:** Select one or more assigned pre-reads, or specific indexed pages, as question sources.
+1. **SLO-only drafting — implemented:** Select SLOs across one or more lectures and ask Luna for original NBME-style questions aligned to those objectives. This mode may use broader medical knowledge to construct a useful vignette, while retaining the selected SLOs as the pedagogic target and clearly distinguishing them from page-grounded questions.
+2. **Pre-read drafting — implemented:** Select one or more assigned pre-reads as grounded question sources. Indexed PDF pages retain page provenance; saved article text retains pre-read provenance.
 3. **Source-aware organization:** Filter and sort by source kind (`lecture`, `slide`, `SLO`, or `pre-read`), academic year, course, lecturer, originating lecture/pre-read, and quality signal. A question may retain both a pedagogic SLO link and supporting lecture/page links.
 4. **Large-pool quiz sampling:** Let the student choose how many questions to draw from a selected pool so a lecture with 100 questions does not consume the entire 100-question quiz limit.
 5. **In-quiz curation:** Delete a bad question immediately while taking a quiz, with confirmation, and mark a particularly useful question as **Great question** for later filtered review.
@@ -279,7 +279,7 @@ The current application uses the configured GPT-5.6 Luna model for four bounded 
 2. **In-session slide chat:** Answer the user's question directly, using the current slide, nearby slide context, and a short non-persistent conversation window only when they help interpret or answer the question.
 3. **SLO correction:** Re-parse a lecture’s extracted text with an optional user instruction and return an editable proposal that requires explicit approval.
 
-4. **Question drafting:** Generate page-cited multiple-choice drafts from explicitly selected lecture material; require human review before persistence. New question creation is intentionally multiple-choice only; any legacy short-answer records remain readable.
+4. **Question drafting:** Generate multiple-choice drafts from explicitly selected lecture pages, SLO targets, or pre-read content; require human review before persistence. SLO mode may use broader medical knowledge for original NBME-style assessment, while lecture and pre-read modes stay grounded in selected source text. New question creation is intentionally multiple-choice only; any legacy short-answer records remain readable.
 
 GPT-5.6 Luna is intended for cost-sensitive workloads and supports structured outputs and the Responses API. The production implementation should retain Luna as the default model while allowing model configuration by job type. See the [official model documentation](https://developers.openai.com/api/docs/models/gpt-5.6-luna).
 
@@ -539,7 +539,7 @@ This mapping is now the working private-beta architecture. Future work should ha
 ### Flow F: Draft and approve study questions
 
 1. Open Question Bank and choose Draft with Luna, or start from the current PDF page.
-2. Select one or more full lectures, courses, or individual pages, request up to 100 questions, and optionally tell Luna what kind of questions to emphasize.
+2. Choose lecture material, SLOs, or pre-reads; select one or more sources, request up to 100 questions, and optionally tell Luna what kind of questions to emphasize.
 3. Review Luna's structured drafts; edit wording, answer choices, answer, and explanation as needed.
 4. Approve useful questions and reject or remove the rest.
 5. Open approved questions through the mirrored curriculum tree and return to any cited source page.
@@ -605,7 +605,7 @@ This mapping is now the working private-beta architecture. Future work should ha
 - Persistent pre-read library with PDF/text ingestion and Unread, Read, and Re-review filters
 - Grouped keyword search with separate Lectures & SLO and Source text modes across lectures, slides, and pre-reads
 - Multi-file processing queue
-- Luna question drafting from lectures or individual pages, human approval, and a persistent curriculum-organized Question Bank
+- Luna question drafting from lectures/pages, selected SLOs, or pre-reads, with human approval and explicit persistent provenance
 
 **Exit condition:** The owner can study real lectures and identify workflow gaps.
 
@@ -641,7 +641,7 @@ This mapping is now the working private-beta architecture. Future work should ha
 ### Phase 3 — Study system
 
 - Marked-slide review mode
-- SLO-only and pre-read question drafting with explicit source provenance
+- Source-aware Question Bank filters for lecture/page, SLO, and pre-read provenance
 - Source-aware Question Bank filters and large-pool quiz sampling
 - In-quiz delete and Great question curation controls
 - Four-to-six-choice question support with validated distractors

@@ -1,8 +1,11 @@
-import type { QuestionRecord, QuestionType } from "./lecture-store";
+import type { QuestionRecord, QuestionSourceKind, QuestionType } from "./lecture-store";
 
 export type QuestionDraft = {
   id: string;
-  sourceLectureId: string;
+  sourceKind: QuestionSourceKind;
+  sourceLectureId?: string;
+  sourcePreReadId?: string;
+  sourceSloIndexes: number[];
   type: QuestionType;
   prompt: string;
   options: string[];
@@ -38,4 +41,3 @@ export function shuffleItems<T>(items: T[]) {
   }
   return shuffled;
 }
-

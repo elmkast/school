@@ -1,13 +1,13 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { deleteLecture, deletePreRead, getLectureFile, getPreReadFile, loadCloudLibrary, loadLectures, loadPreReads, migrateLocalLibraryToCloud, normalizeLecture, saveLecture, saveLectures, savePreRead, setCloudUser, type InkStroke, type Lecture, type MigrationProgress, type PreRead, type PreReadStatus, type QuestionRecord, type QuestionType, type Slide } from "../lib/lecture-store";
+import { deleteLecture, deletePreRead, getLectureFile, getPreReadFile, loadCloudLibrary, loadLectures, loadPreReads, migrateLocalLibraryToCloud, normalizeLecture, saveLecture, saveLectures, savePreRead, setCloudUser, type InkStroke, type Lecture, type MigrationProgress, type PreRead, type PreReadStatus, type QuestionRecord, type QuestionSourceKind, type QuestionType, type Slide } from "../lib/lecture-store";
 import { downloadSloExcel } from "../lib/slo-excel";
 import { downloadSloPdf } from "../lib/slo-pdf";
 import { cloudConfigured, supabase, type CloudSession } from "../lib/supabase-client";
 import { clearUploadDiagnosticCheckpoint, downloadDiagnostics, recordDiagnostic, setUploadDiagnosticCheckpoint } from "../lib/diagnostics";
 import { ALL_LECTURERS, LECTURE_WEEK_OPTIONS, NEW_LECTURER, compareLectureWeeks, compareText, lectureWeekLabel, lecturerFolderLabel } from "../lib/curriculum";
-import { searchMatchScore, searchResultCollectionTitle, searchResultWeek, type LectureSearchResult, type PreReadSearchResult, type SearchKind, type SearchResult } from "../lib/curriculum-search";
+import { searchMatchScore, searchResultCollectionTitle, searchResultWeek, type SearchKind, type SearchResult } from "../lib/curriculum-search";
 import { shuffleItems, type QuestionDraft, type QuizMode, type QuizQuestion, type QuizResponse } from "../lib/questions";
 import { pdfjs } from "../lib/pdf-runtime";
 import { seedLectures } from "../lib/seed-lectures";
@@ -105,6 +105,8 @@ type PreReadDraft = {
   text: string;
 };
 
+type QuestionSourceMode = "lecture" | "slo" | "preread";
+
 type LunaChatMessage = {
   id: string;
   role: "user" | "assistant";
@@ -168,8 +170,11 @@ export default function Home() {
   const [questionWeekFilter, setQuestionWeekFilter] = useState("all");
   const [questionSort, setQuestionSort] = useState<"week-asc" | "name-asc">("week-asc");
   const [questionBuilderOpen, setQuestionBuilderOpen] = useState(false);
+  const [questionSourceMode, setQuestionSourceMode] = useState<QuestionSourceMode>("lecture");
   const [selectedQuestionLectureIds, setSelectedQuestionLectureIds] = useState<Set<string>>(new Set());
   const [selectedQuestionSlideKeys, setSelectedQuestionSlideKeys] = useState<Set<string>>(new Set());
+  const [selectedQuestionSloKeys, setSelectedQuestionSloKeys] = useState<Set<string>>(new Set());
+  const [selectedQuestionPreReadIds, setSelectedQuestionPreReadIds] = useState<Set<string>>(new Set());
   const [expandedQuestionSourceIds, setExpandedQuestionSourceIds] = useState<Set<string>>(new Set());
   const [questionCount, setQuestionCount] = useState(6);
   const [questionInstruction, setQuestionInstruction] = useState("");
@@ -177,6 +182,7 @@ export default function Home() {
   const [questionGenerating, setQuestionGenerating] = useState(false);
   const [revealedQuestionIds, setRevealedQuestionIds] = useState<Set<string>>(new Set());
   const [expandedQuestionBankLectureIds, setExpandedQuestionBankLectureIds] = useState<Set<string>>(new Set());
+  const [expandedQuestionBankPreReadIds, setExpandedQuestionBankPreReadIds] = useState<Set<string>>(new Set());
   const [quizBuilderOpen, setQuizBuilderOpen] = useState(false);
   const [selectedQuizLectureIds, setSelectedQuizLectureIds] = useState<Set<string>>(new Set());
   const [quizQuestionCount, setQuizQuestionCount] = useState(10);
@@ -283,6 +289,8 @@ export default function Home() {
   useEffect(() => {
     if (!localReady || !cloudSession) return;
     let cancelled = false;
+    // Cloud hydration deliberately gates the signed-in library until its first snapshot arrives.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setCloudReady(false);
     setCloudUser(cloudSession.user.id);
     void loadCloudLibrary()
@@ -357,6 +365,7 @@ export default function Home() {
       .sort((a, b) => sloSort === "name-asc" ? compareText(a.title, b.title) : compareLectureWeeks(a.week, b.week) || compareText(a.title, b.title));
   }, [lectures, flaggedSLOsSelected, sloWeekFilter, sloSort, allSLOsSelected, activeSloYear, activeSloCourse, activeSloLecturer]);
   const questionLectures = useMemo(() => lectures.filter((lecture) => lecture.questions.length > 0), [lectures]);
+  const questionPreReads = useMemo(() => preReads.filter((preRead) => preRead.questions.length > 0).sort((a, b) => compareText(a.title, b.title)), [preReads]);
   const questionAcademicYears = useMemo(() => Array.from(new Set(questionLectures.map((lecture) => lecture.academicYear))).sort().reverse(), [questionLectures]);
   const questionCoursesByYear = useMemo(() => questionAcademicYears.reduce<Record<string, string[]>>((folders, year) => {
     folders[year] = Array.from(new Set(questionLectures.filter((lecture) => lecture.academicYear === year).map((lecture) => lecture.course))).sort(compareText);
@@ -596,7 +605,11 @@ export default function Home() {
     return `${lectureId}::${page}`;
   }
 
-  function openQuestionBuilder(lectureId?: string, page?: number) {
+  function questionSloKey(lectureId: string, index: number) {
+    return `${lectureId}::${index}`;
+  }
+
+  function openQuestionBuilder(lectureId?: string, page?: number, mode: QuestionSourceMode = "lecture", preReadId?: string) {
     const lectureIds = new Set<string>();
     const slideKeys = new Set<string>();
     const expandedIds = new Set<string>();
@@ -607,6 +620,12 @@ export default function Home() {
     }
     setSelectedQuestionLectureIds(lectureIds);
     setSelectedQuestionSlideKeys(slideKeys);
+    const initialSloKeys = mode === "slo" && lectureId
+      ? new Set((lectures.find((lecture) => lecture.id === lectureId)?.slos ?? []).map((_, index) => questionSloKey(lectureId, index)))
+      : new Set<string>();
+    setSelectedQuestionSloKeys(initialSloKeys);
+    setSelectedQuestionPreReadIds(preReadId ? new Set([preReadId]) : new Set());
+    setQuestionSourceMode(mode);
     setExpandedQuestionSourceIds(expandedIds);
     setQuestionDrafts(null);
     setQuestionInstruction("");
@@ -636,14 +655,41 @@ export default function Home() {
     });
   }
 
+  function toggleQuestionSlo(lectureId: string, index: number, selected: boolean) {
+    setSelectedQuestionSloKeys((current) => {
+      const next = new Set(current);
+      const key = questionSloKey(lectureId, index);
+      if (selected) next.add(key); else next.delete(key);
+      return next;
+    });
+  }
+
+  function setQuestionPreReadSelection(ids: string[], selected: boolean) {
+    setSelectedQuestionPreReadIds((current) => {
+      const next = new Set(current);
+      ids.forEach((id) => selected ? next.add(id) : next.delete(id));
+      return next;
+    });
+  }
+
   function selectedQuestionSources() {
+    if (questionSourceMode === "slo") return lectures.flatMap((lecture) => {
+      const selected = lecture.slos.map((text, index) => ({ text, index })).filter(({ index }) => selectedQuestionSloKeys.has(questionSloKey(lecture.id, index)));
+      if (!selected.length) return [];
+      return [{ sourceKind: "slo" as const, sourceId: lecture.id, lectureId: lecture.id, title: lecture.title, sloIndexes: selected.map(({ index }) => index), slos: selected.map(({ text }) => text), slides: [] as Slide[] }];
+    });
+    if (questionSourceMode === "preread") return preReads.flatMap((preRead) => {
+      if (!selectedQuestionPreReadIds.has(preRead.id)) return [];
+      const slides = preRead.pages.length ? preRead.pages : [{ page: 1, heading: preRead.title, text: preRead.text }];
+      return [{ sourceKind: "preread" as const, sourceId: preRead.id, preReadId: preRead.id, title: preRead.title, sloIndexes: [] as number[], slos: [] as string[], slides }];
+    });
     const selected = lectures.flatMap((lecture) => {
       const wholeLecture = selectedQuestionLectureIds.has(lecture.id);
       const slides = wholeLecture
         ? lecture.slides
         : lecture.slides.filter((slide) => selectedQuestionSlideKeys.has(questionSlideKey(lecture.id, slide.page)));
       if (!slides.length) return [];
-      return [{ lectureId: lecture.id, title: lecture.title, slos: lecture.slos, slides }];
+      return [{ sourceKind: (wholeLecture ? "lecture" : "slide") as "lecture" | "slide", sourceId: lecture.id, lectureId: lecture.id, title: lecture.title, sloIndexes: [] as number[], slos: lecture.slos, slides }];
     });
     const perLectureCharacterBudget = Math.max(500, Math.floor(80_000 / Math.max(1, selected.length)));
     return selected.map((source) => {
@@ -660,7 +706,7 @@ export default function Home() {
 
   async function generateQuestionDrafts() {
     const sources = selectedQuestionSources();
-    if (!sources.length) { setNotice("Select at least one lecture or slide."); return; }
+    if (!sources.length) { setNotice(questionSourceMode === "slo" ? "Select at least one SLO." : questionSourceMode === "preread" ? "Select at least one pre-read." : "Select at least one lecture or slide."); return; }
     setQuestionGenerating(true);
     try {
       const response = await fetch(aiEndpoint("generate-questions"), {
@@ -670,32 +716,39 @@ export default function Home() {
       });
       const data = await response.json() as { questions?: unknown; error?: string; detail?: string; warning?: string };
       if (!response.ok) throw new Error(data.error || data.detail || "Luna could not draft questions.");
-      const sourcePages = new Map(sources.map((source) => [source.lectureId, new Set(source.slides.map((slide) => slide.page))]));
+      const sourceMap = new Map(sources.map((source) => [`${source.sourceKind}::${source.sourceId}`, source]));
       const drafts = Array.isArray(data.questions) ? data.questions.flatMap((value) => {
         if (!value || typeof value !== "object" || Array.isArray(value)) return [];
         const record = value as Record<string, unknown>;
-        const sourceLectureId = typeof record.sourceLectureId === "string" && sourcePages.has(record.sourceLectureId) ? record.sourceLectureId : "";
+        const sourceKind = record.sourceKind === "lecture" || record.sourceKind === "slide" || record.sourceKind === "slo" || record.sourceKind === "preread" ? record.sourceKind as QuestionSourceKind : null;
+        const sourceId = typeof record.sourceId === "string" ? record.sourceId : "";
+        const source = sourceKind ? sourceMap.get(`${sourceKind}::${sourceId}`) : undefined;
         const prompt = typeof record.prompt === "string" ? record.prompt.trim() : "";
         const answer = typeof record.answer === "string" ? record.answer.trim() : "";
-        if (!sourceLectureId || !prompt || !answer) return [];
+        if (!source || !prompt || !answer) return [];
         const options = Array.isArray(record.options)
           ? record.options.filter((option): option is string => typeof option === "string" && Boolean(option.trim())).map((option) => option.trim()).slice(0, 6)
           : [];
         if (record.type !== "multiple-choice" || options.length !== 4 || !options.includes(answer)) return [];
-        const allowedPages = sourcePages.get(sourceLectureId) ?? new Set<number>();
+        const allowedPages = new Set(source.slides.map((slide) => slide.page));
         const pages = Array.isArray(record.sourcePages)
           ? Array.from(new Set(record.sourcePages.filter((page): page is number => typeof page === "number" && allowedPages.has(page)))).sort((a, b) => a - b)
           : [];
-        const fallbackPage = allowedPages.values().next().value as number | undefined;
+        const fallbackPage = sourceKind !== "slo" && allowedPages.values().next().value as number | undefined;
+        const selectedSloIndexes = sourceKind === "slo" ? source.sloIndexes : [];
+        const requestedSloIndexes = Array.isArray(record.sourceSloIndexes) ? record.sourceSloIndexes.filter((index): index is number => typeof index === "number" && selectedSloIndexes.includes(index)) : [];
         return [{
           id: crypto.randomUUID(),
-          sourceLectureId,
+          sourceKind: source.sourceKind,
+          sourceLectureId: "lectureId" in source ? source.lectureId : undefined,
+          sourcePreReadId: "preReadId" in source ? source.preReadId : undefined,
+          sourceSloIndexes: requestedSloIndexes.length ? requestedSloIndexes : selectedSloIndexes,
           type: "multiple-choice" as QuestionType,
           prompt,
           options,
           answer,
           explanation: typeof record.explanation === "string" ? record.explanation.trim() : "",
-          sourcePages: pages.length ? pages : fallbackPage ? [fallbackPage] : [],
+          sourcePages: sourceKind === "slo" ? [] : pages.length ? pages : fallbackPage ? [fallbackPage] : [],
           approved: true,
         }];
       }) : [];
@@ -726,6 +779,10 @@ export default function Home() {
         options: draft.options.map((option) => option.trim()).filter(Boolean),
         answer: draft.answer.trim(),
         explanation: draft.explanation.trim(),
+        sourceKind: draft.sourceKind,
+        sourceLectureId: lecture.id,
+        sourcePreReadId: undefined,
+        sourceSloIndexes: draft.sourceSloIndexes,
         sourcePages: draft.sourcePages,
         createdAt: now,
       }));
@@ -734,8 +791,30 @@ export default function Home() {
       changed.push(updated);
       return updated;
     });
+    const changedPreReads: PreRead[] = [];
+    const nextPreReads = preReads.map((preRead) => {
+      const additions = approved.filter((draft) => draft.sourcePreReadId === preRead.id).map<QuestionRecord>((draft) => ({
+        id: crypto.randomUUID(),
+        type: "multiple-choice",
+        prompt: draft.prompt.trim(),
+        options: draft.options.map((option) => option.trim()).filter(Boolean),
+        answer: draft.answer.trim(),
+        explanation: draft.explanation.trim(),
+        sourceKind: "preread",
+        sourceLectureId: undefined,
+        sourcePreReadId: preRead.id,
+        sourceSloIndexes: [],
+        sourcePages: preRead.pages.length ? draft.sourcePages : [],
+        createdAt: now,
+      }));
+      if (!additions.length) return preRead;
+      const updated = { ...preRead, questions: [...preRead.questions, ...additions] };
+      changedPreReads.push(updated);
+      return updated;
+    });
     setLectures(nextLectures);
-    await Promise.all(changed.map((lecture) => saveLecture(lecture)));
+    setPreReads(nextPreReads);
+    await Promise.all([...changed.map((lecture) => saveLecture(lecture)), ...changedPreReads.map((preRead) => savePreRead(preRead))]);
     setQuestionBuilderOpen(false);
     setQuestionDrafts(null);
     setAllQuestionsSelected(true);
@@ -749,6 +828,15 @@ export default function Home() {
     const updated = { ...lecture, questions: lecture.questions.filter((question) => question.id !== questionId) };
     setLectures((current) => current.map((item) => item.id === lectureId ? updated : item));
     await saveLecture(updated);
+    setNotice("Question removed.");
+  }
+
+  async function removePreReadQuestion(preReadId: string, questionId: string) {
+    const preRead = preReads.find((item) => item.id === preReadId);
+    if (!preRead || !window.confirm("Remove this question from the question bank?")) return;
+    const updated = { ...preRead, questions: preRead.questions.filter((question) => question.id !== questionId) };
+    setPreReads((current) => current.map((item) => item.id === preReadId ? updated : item));
+    await savePreRead(updated);
     setNotice("Question removed.");
   }
 
@@ -1202,7 +1290,7 @@ export default function Home() {
       const preRead: PreRead = {
         id: crypto.randomUUID(), title, author: preReadDraft.author.trim() || "Author not listed", course,
         academicYear: preReadDraft.academicYear.trim(), sourceType: preReadDraft.sourceType,
-        sourceUrl: sourceUrl || undefined, text, pages, status: "unread",
+        sourceUrl: sourceUrl || undefined, text, pages, questions: [], status: "unread",
         fileName: preReadPdfFile?.name, createdAt: new Date().toISOString(),
       };
       await savePreRead(preRead, preReadPdfFile ?? undefined);
@@ -1260,7 +1348,11 @@ export default function Home() {
   const exportableLectures = lectures.filter((lecture) => lecture.slos.length > 0);
   const selectedExportCount = exportableLectures.filter((lecture) => selectedExportLectureIds.has(lecture.id)).length;
   const totalQuestionCount = questionLectures.reduce((total, lecture) => total + lecture.questions.length, 0);
-  const selectedQuestionSourceCount = selectedQuestionLectureIds.size + selectedQuestionSlideKeys.size;
+  const selectedQuestionSourceCount = questionSourceMode === "slo"
+    ? selectedQuestionSloKeys.size
+    : questionSourceMode === "preread"
+      ? selectedQuestionPreReadIds.size
+      : selectedQuestionLectureIds.size + selectedQuestionSlideKeys.size;
   const selectedQuizQuestionCount = questionLectures.filter((lecture) => selectedQuizLectureIds.has(lecture.id)).reduce((total, lecture) => total + lecture.questions.length, 0);
   const quizQuestionLimit = Math.min(100, selectedQuizQuestionCount);
   const effectiveQuizQuestionCount = quizQuestionLimit > 0 ? Math.min(Math.max(1, quizQuestionCount), quizQuestionLimit) : 0;
@@ -1297,6 +1389,16 @@ export default function Home() {
   function selectSloRoot() {
     setAllSLOsSelected(true);
     setActiveSloLecturer(ALL_LECTURERS);
+    setView("slos");
+  }
+
+  function openSloQuestionSource(lecture: Lecture) {
+    setAllSLOsSelected(false);
+    setFlaggedSLOsSelected(false);
+    setActiveSloYear(lecture.academicYear);
+    setActiveSloCourse(lecture.course);
+    setActiveSloLecturer(ALL_LECTURERS);
+    setExpandedSloLectureIds((current) => new Set(current).add(lecture.id));
     setView("slos");
   }
 
@@ -1449,7 +1551,7 @@ export default function Home() {
           <div className="preread-list">{visiblePreReads.map((preRead) => <article className="preread-card" key={preRead.id}>
             <div className="preread-card-copy"><small>{preRead.academicYear} · {preRead.course}</small><h2>{preRead.title}</h2><p>{preRead.author} · {preRead.sourceType === "pdf" ? `PDF${preRead.pages.length ? ` · ${preRead.pages.length} pages` : ""}` : "Web article"}</p></div>
             <div className="preread-status" aria-label={`Reading status for ${preRead.title}`}>{(["unread", "read", "rereview"] as PreReadStatus[]).map((status) => <button key={status} className={preRead.status === status ? "active" : ""} aria-pressed={preRead.status === status} onClick={() => updatePreReadStatus(preRead.id, status)}>{status === "read" && <AppIcon name="check"/>}{preReadStatusLabel[status]}</button>)}</div>
-            <div className="preread-actions"><button onClick={() => setPreviewPreReadId(preRead.id)}>Details</button><button className="open-preread" onClick={() => openPreReadSource(preRead)}>{preRead.sourceType === "pdf" ? "Open PDF" : preRead.sourceUrl ? "Open article" : "Read saved text"}<AppIcon name={preRead.sourceType === "web" ? "link" : "arrow"}/></button><button className="remove-preread" aria-label={`Remove ${preRead.title}`} title="Remove pre-read" onClick={() => removePreRead(preRead.id)}><AppIcon name="trash"/></button></div>
+            <div className="preread-actions"><button onClick={() => setPreviewPreReadId(preRead.id)}>Details</button><button onClick={() => openQuestionBuilder(undefined, undefined, "preread", preRead.id)}>Draft questions</button><button className="open-preread" onClick={() => openPreReadSource(preRead)}>{preRead.sourceType === "pdf" ? "Open PDF" : preRead.sourceUrl ? "Open article" : "Read saved text"}<AppIcon name={preRead.sourceType === "web" ? "link" : "arrow"}/></button><button className="remove-preread" aria-label={`Remove ${preRead.title}`} title="Remove pre-read" onClick={() => removePreRead(preRead.id)}><AppIcon name="trash"/></button></div>
           </article>)}</div>
           {visiblePreReads.length === 0 && <div className="empty-state"><AppIcon name="file"/><strong>{preReadFilter === "all" ? "No pre-reads yet" : `No ${preReadStatusLabel[preReadFilter].toLowerCase()} pre-reads`}</strong><span>{preReadFilter === "all" ? "Add a PDF or save an assigned web reading to begin." : "Change a pre-read’s status and it will appear here."}</span>{preReadFilter === "all" && <button className="empty-add-preread" onClick={openPreReadDialog}>Add your first pre-read</button>}</div>}
         </section>}
@@ -1489,7 +1591,7 @@ export default function Home() {
               <button onClick={() => { setActiveSloCourse("All courses"); setActiveSloLecturer(ALL_LECTURERS); setExpandedSloYear(activeSloYear); }}>{activeSloYear}</button>
               {activeSloCourse !== "All courses" && <><span>·</span><button onClick={() => setActiveSloLecturer(ALL_LECTURERS)}>{activeSloCourse}</button></>}
               {activeSloLecturer !== ALL_LECTURERS && <><span>·</span><button onClick={() => setActiveSloLecturer(activeSloLecturer)}>{lecturerFolderLabel(activeSloLecturer)}</button></>}
-            </nav>} filters={<><label className="sort-control"><span>Filter by</span><select aria-label="Filter SLOs" value={sloFilterValue} onChange={(event) => { const value = event.target.value; setFlaggedSLOsSelected(value === "flagged"); if (value !== "flagged") setSloWeekFilter(value); }}><option value="all">All SLOs</option><option value="flagged">Flagged SLOs</option>{LECTURE_WEEK_OPTIONS.map((week) => <option key={week} value={week}>Week {week}</option>)}<option value="unassigned">Week unassigned</option></select></label><label className="sort-control"><span>Sort by</span><select value={sloSort} onChange={(event) => setSloSort(event.target.value as "week-asc" | "name-asc")}><option value="week-asc">Week · earliest first</option><option value="name-asc">Name · A–Z</option></select></label></>} actions={<button className="convert-slo-button" onClick={openSloExport}><AppIcon name="download"/>Export SLOs</button>} />
+            </nav>} filters={<><label className="sort-control"><span>Filter by</span><select aria-label="Filter SLOs" value={sloFilterValue} onChange={(event) => { const value = event.target.value; setFlaggedSLOsSelected(value === "flagged"); if (value !== "flagged") setSloWeekFilter(value); }}><option value="all">All SLOs</option><option value="flagged">Flagged SLOs</option>{LECTURE_WEEK_OPTIONS.map((week) => <option key={week} value={week}>Week {week}</option>)}<option value="unassigned">Week unassigned</option></select></label><label className="sort-control"><span>Sort by</span><select value={sloSort} onChange={(event) => setSloSort(event.target.value as "week-asc" | "name-asc")}><option value="week-asc">Week · earliest first</option><option value="name-asc">Name · A–Z</option></select></label></>} actions={<div className="question-bank-actions"><button onClick={() => openQuestionBuilder(undefined, undefined, "slo")}>Draft from SLOs</button><button className="convert-slo-button" onClick={openSloExport}><AppIcon name="download"/>Export SLOs</button></div>} />
           <div className="lecture-list curriculum-card-list">{visibleSloLectures.map((lecture) => {
             const expanded = expandedSloLectureIds.has(lecture.id);
             const entries = lecture.slos.map((slo, index) => ({ slo, index })).filter(({ index }) => !flaggedSLOsSelected || lecture.flaggedSLOs.includes(index));
@@ -1498,7 +1600,7 @@ export default function Home() {
               <div className="curriculum-card-content"><ol>{entries.map(({ slo, index }) => {
               const flagged = lecture.flaggedSLOs.includes(index);
               return <li key={`${index}-${slo}`}><span>{index + 1}</span><p>{slo}</p><button className={`slo-flag ${flagged ? "flagged" : ""}`} aria-label={flagged ? "Unflag this SLO" : "Flag this SLO"} aria-pressed={flagged} title={flagged ? "Remove flag" : "Flag for review"} onClick={() => toggleSloFlag(lecture.id, index)}><AppIcon name="flag"/></button></li>;
-              })}</ol><footer><button className="secondary-card-action" onClick={() => openSloReparse(lecture.id)}>Luna re-parse</button><button className="primary-card-action" onClick={() => openLectureBrief(lecture.id)}>Open lecture</button></footer></div>
+              })}</ol><footer><button className="secondary-card-action" onClick={() => openSloReparse(lecture.id)}>Luna re-parse</button><button className="secondary-card-action" onClick={() => openQuestionBuilder(lecture.id, undefined, "slo")}>Draft questions</button><button className="primary-card-action" onClick={() => openLectureBrief(lecture.id)}>Open lecture</button></footer></div>
             </CurriculumCard>;
           })}</div>
           {visibleSloLectures.length === 0 && <div className="empty-state"><AppIcon name="target"/><strong>{flaggedSLOsSelected ? "No flagged SLOs yet" : "No SLOs in this folder yet"}</strong><span>{flaggedSLOsSelected ? "Use the flag beside any SLO to keep it here for review." : "Upload a lecture or choose another folder from the SLO tree."}</span></div>}
@@ -1510,14 +1612,14 @@ export default function Home() {
             {activeQuestionCourse !== "All courses" && <><span>·</span><button onClick={() => setActiveQuestionLecturer(ALL_LECTURERS)}>{activeQuestionCourse}</button></>}
             {activeQuestionLecturer !== ALL_LECTURERS && <><span>·</span><button>{lecturerFolderLabel(activeQuestionLecturer)}</button></>}
           </nav>} filters={<><label className="sort-control"><span>Filter by</span><select aria-label="Filter question bank by curriculum week" value={questionWeekFilter} onChange={(event) => setQuestionWeekFilter(event.target.value)}><option value="all">All weeks</option>{LECTURE_WEEK_OPTIONS.map((week) => <option key={week} value={week}>Week {week}</option>)}<option value="unassigned">Week unassigned</option></select></label><label className="sort-control"><span>Sort by</span><select value={questionSort} onChange={(event) => setQuestionSort(event.target.value as "week-asc" | "name-asc")}><option value="week-asc">Week · earliest first</option><option value="name-asc">Name · A–Z</option></select></label></>} actions={<div className="question-bank-actions"><button className="take-quiz-trigger" disabled={totalQuestionCount === 0} onClick={openQuizBuilder}>Take quiz</button><button className="question-draft-trigger" onClick={() => openQuestionBuilder()}>Draft with Luna</button></div>} />
-          {visibleQuestionLectures.length > 0 ? <div className="lecture-list curriculum-card-list">{visibleQuestionLectures.map((lecture) => {
+          {visibleQuestionLectures.length > 0 && <div className="lecture-list curriculum-card-list">{visibleQuestionLectures.map((lecture) => {
             const expanded = expandedQuestionBankLectureIds.has(lecture.id);
             const toggleExpanded = () => setExpandedQuestionBankLectureIds((current) => { const next = new Set(current); if (expanded) next.delete(lecture.id); else next.add(lecture.id); return next; });
             return <CurriculumCard key={lecture.id} title={lecture.title} course={lecture.course} lecturer={lecture.lecturer} week={lecture.week} countLabel={`${lecture.questions.length} question${lecture.questions.length === 1 ? "" : "s"}`} primaryActionLabel={expanded ? "Hide questions" : "View questions"} onPrimaryAction={toggleExpanded} expanded={expanded}>
             <div className="curriculum-card-content question-list">{lecture.questions.map((question, index) => {
               const revealed = revealedQuestionIds.has(question.id);
               return <article className="bank-question" key={question.id}>
-                <div className="question-meta"><span>Q{index + 1}</span><small>{question.type === "multiple-choice" ? "Multiple choice" : "Short answer"}</small><div>{question.sourcePages.map((page) => <button key={page} onClick={() => openLectureBrief(lecture.id, page)}>Page {page}</button>)}</div></div>
+                <div className="question-meta"><span>Q{index + 1}</span><small>{question.sourceKind === "slo" ? "SLO-based" : question.sourceKind === "slide" ? "Slide-based" : "Lecture-based"} · {question.type === "multiple-choice" ? "Multiple choice" : "Short answer"}</small><div>{question.sourceSloIndexes.length > 0 && <button onClick={() => openSloQuestionSource(lecture)}>SLO {question.sourceSloIndexes.map((sloIndex) => sloIndex + 1).join(", ")}</button>}{question.sourcePages.map((page) => <button key={page} onClick={() => openLectureBrief(lecture.id, page)}>Page {page}</button>)}</div></div>
                 <h3>{question.prompt}</h3>
                 {question.type === "multiple-choice" && <ol className="question-options" type="A">{question.options.map((option) => <li key={option}>{option}</li>)}</ol>}
                 {revealed && <div className="question-answer"><strong>Answer</strong><p>{question.answer}</p>{question.explanation && <><strong>Explanation</strong><p>{question.explanation}</p></>}</div>}
@@ -1525,7 +1627,23 @@ export default function Home() {
               </article>;
             })}</div>
           </CurriculumCard>;
-          })}</div> : <div className="home-empty"><strong>No approved questions here yet</strong><span>Select lectures or individual slides and ask Luna to draft the first set.</span><button onClick={() => openQuestionBuilder()}>Draft questions</button></div>}
+          })}</div>}
+          {allQuestionsSelected && questionPreReads.length > 0 && <div className="lecture-list curriculum-card-list question-preread-bank">{questionPreReads.map((preRead) => {
+            const expanded = expandedQuestionBankPreReadIds.has(preRead.id);
+            const toggleExpanded = () => setExpandedQuestionBankPreReadIds((current) => { const next = new Set(current); if (expanded) next.delete(preRead.id); else next.add(preRead.id); return next; });
+            return <CurriculumCard key={preRead.id} title={preRead.title} course={preRead.course} lecturer={preRead.author} week={null} countLabel={`${preRead.questions.length} question${preRead.questions.length === 1 ? "" : "s"}`} primaryActionLabel={expanded ? "Hide questions" : "View questions"} onPrimaryAction={toggleExpanded} expanded={expanded}>
+              <div className="curriculum-card-content question-list">{preRead.questions.map((question, index) => {
+                const revealed = revealedQuestionIds.has(question.id);
+                return <article className="bank-question" key={question.id}>
+                  <div className="question-meta"><span>Q{index + 1}</span><small>Pre-read · Multiple choice</small><div>{question.sourcePages.map((page) => <button key={page} onClick={() => openPreReadSource(preRead, page)}>Page {page}</button>)}</div></div>
+                  <h3>{question.prompt}</h3><ol className="question-options" type="A">{question.options.map((option) => <li key={option}>{option}</li>)}</ol>
+                  {revealed && <div className="question-answer"><strong>Answer</strong><p>{question.answer}</p>{question.explanation && <><strong>Explanation</strong><p>{question.explanation}</p></>}</div>}
+                  <footer><button onClick={() => setRevealedQuestionIds((current) => { const next = new Set(current); if (revealed) next.delete(question.id); else next.add(question.id); return next; })}>{revealed ? "Hide answer" : "Show answer"}</button><button className="remove-question" onClick={() => void removePreReadQuestion(preRead.id, question.id)}>Remove</button></footer>
+                </article>;
+              })}</div>
+            </CurriculumCard>;
+          })}</div>}
+          {visibleQuestionLectures.length === 0 && (!allQuestionsSelected || questionPreReads.length === 0) && <div className="home-empty"><strong>No approved questions here yet</strong><span>Select lectures, SLOs, or pre-reads and ask Luna to draft the first set.</span><button onClick={() => openQuestionBuilder()}>Draft questions</button></div>}
         </section>}
 
         {quizBuilderOpen && <div className="export-backdrop quiz-builder-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setQuizBuilderOpen(false); }}>
@@ -1583,14 +1701,24 @@ export default function Home() {
 
         {questionBuilderOpen && <div className="export-backdrop question-builder-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !questionGenerating) setQuestionBuilderOpen(false); }}>
           <section className="question-builder-modal" role="dialog" aria-modal="true" aria-labelledby="question-builder-title">
-            <header><div><small>LUNA QUESTION DRAFTING</small><h2 id="question-builder-title">{questionDrafts ? "Review Luna’s questions" : "Choose source material"}</h2><p>{questionDrafts ? "Edit, approve, or reject each draft before anything enters your bank." : "Select entire lectures, multiple lectures, or individual slides."}</p></div><button className="icon-button" aria-label="Close question builder" disabled={questionGenerating} onClick={() => setQuestionBuilderOpen(false)}><AppIcon name="x"/></button></header>
+            <header><div><small>LUNA QUESTION DRAFTING</small><h2 id="question-builder-title">{questionDrafts ? "Review Luna’s questions" : "Choose source material"}</h2><p>{questionDrafts ? "Edit, approve, or reject each draft before anything enters your bank." : questionSourceMode === "slo" ? "Select the learning objectives Luna should assess." : questionSourceMode === "preread" ? "Select one or more assigned readings." : "Select entire lectures, multiple lectures, or individual slides."}</p></div><button className="icon-button" aria-label="Close question builder" disabled={questionGenerating} onClick={() => setQuestionBuilderOpen(false)}><AppIcon name="x"/></button></header>
             {!questionDrafts ? <>
+              <div className="question-source-mode-tabs" role="tablist" aria-label="Question source type">
+                <button role="tab" aria-selected={questionSourceMode === "lecture"} className={questionSourceMode === "lecture" ? "active" : ""} onClick={() => setQuestionSourceMode("lecture")}>Lecture material</button>
+                <button role="tab" aria-selected={questionSourceMode === "slo"} className={questionSourceMode === "slo" ? "active" : ""} onClick={() => setQuestionSourceMode("slo")}>SLOs</button>
+                <button role="tab" aria-selected={questionSourceMode === "preread"} className={questionSourceMode === "preread" ? "active" : ""} onClick={() => setQuestionSourceMode("preread")}>Pre-reads</button>
+              </div>
               <div className="question-builder-options">
                 <label><span>Number of questions</span><input type="number" min="1" max="100" value={questionCount} onChange={(event) => setQuestionCount(Math.min(100, Math.max(1, Number(event.target.value) || 1)))}/><small>100 maximum</small></label>
                 <label className="question-direction"><span>Optional direction for Luna</span><textarea maxLength={2000} value={questionInstruction} onChange={(event) => setQuestionInstruction(event.target.value)} placeholder="For example: Focus on mechanisms and clinical application."/></label>
               </div>
-              <div className="question-source-toolbar"><span><strong>{selectedQuestionSourceCount}</strong> source selection{selectedQuestionSourceCount === 1 ? "" : "s"}</span><div><button onClick={() => setQuestionLectureSelection(lectures.map((lecture) => lecture.id), true)}>Select all lectures</button><button onClick={() => { setSelectedQuestionLectureIds(new Set()); setSelectedQuestionSlideKeys(new Set()); }}>Clear</button></div></div>
-              <div className="question-source-tree">{academicYears.map((year) => {
+              <div className="question-source-toolbar"><span><strong>{selectedQuestionSourceCount}</strong> {questionSourceMode === "slo" ? "SLO" : questionSourceMode === "preread" ? "pre-read" : "source"}{selectedQuestionSourceCount === 1 ? "" : "s"} selected</span><div>
+                {questionSourceMode === "lecture" && <button onClick={() => setQuestionLectureSelection(lectures.map((lecture) => lecture.id), true)}>Select all lectures</button>}
+                {questionSourceMode === "slo" && <button onClick={() => setSelectedQuestionSloKeys(new Set(lectures.flatMap((lecture) => lecture.slos.map((_, index) => questionSloKey(lecture.id, index)))))}>Select all SLOs</button>}
+                {questionSourceMode === "preread" && <button onClick={() => setQuestionPreReadSelection(preReads.map((preRead) => preRead.id), true)}>Select all pre-reads</button>}
+                <button onClick={() => { setSelectedQuestionLectureIds(new Set()); setSelectedQuestionSlideKeys(new Set()); setSelectedQuestionSloKeys(new Set()); setSelectedQuestionPreReadIds(new Set()); }}>Clear</button>
+              </div></div>
+              {questionSourceMode === "lecture" && <div className="question-source-tree">{academicYears.map((year) => {
                 const yearLectures = lectures.filter((lecture) => lecture.academicYear === year);
                 if (!yearLectures.length) return null;
                 return <section key={year}><h3>{year}</h3>{(coursesByYear[year] ?? []).map((course) => {
@@ -1604,23 +1732,60 @@ export default function Home() {
                       const expanded = expandedQuestionSourceIds.has(lecture.id);
                       const selectedSlideCount = lecture.slides.filter((slide) => selectedQuestionSlideKeys.has(questionSlideKey(lecture.id, slide.page))).length;
                       return <section className="question-source-lecture" key={lecture.id}>
-                        <div><label><input type="checkbox" checked={wholeLectureSelected} onChange={(event) => setQuestionLectureSelection([lecture.id], event.target.checked)}/><span><strong>{lecture.title}</strong><small>{lecturerFolderLabel(lecture.lecturer)} · {lecture.slides.length} indexed slides{selectedSlideCount ? ` · ${selectedSlideCount} selected` : ""}</small></span></label><button aria-expanded={expanded} onClick={() => setExpandedQuestionSourceIds((current) => { const next = new Set(current); if (expanded) next.delete(lecture.id); else next.add(lecture.id); return next; })}>{expanded ? "Hide slides" : "Choose slides"}</button></div>
+                        <div><label><input aria-label={`Select ${lecture.title}`} type="checkbox" checked={wholeLectureSelected} onChange={(event) => setQuestionLectureSelection([lecture.id], event.target.checked)}/><span><strong>{lecture.title}</strong><small>{lecturerFolderLabel(lecture.lecturer)} · {lecture.slides.length} indexed slides{selectedSlideCount ? ` · ${selectedSlideCount} selected` : ""}</small></span></label><button aria-expanded={expanded} onClick={() => setExpandedQuestionSourceIds((current) => { const next = new Set(current); if (expanded) next.delete(lecture.id); else next.add(lecture.id); return next; })}>{expanded ? "Hide slides" : "Choose slides"}</button></div>
                         {expanded && <div className="question-slide-selection">{lecture.slides.map((slide) => {
                           const checked = wholeLectureSelected || selectedQuestionSlideKeys.has(questionSlideKey(lecture.id, slide.page));
-                          return <label key={slide.page}><input type="checkbox" checked={checked} onChange={(event) => toggleQuestionSlide(lecture.id, slide.page, event.target.checked)}/><span><strong>Page {slide.page}</strong><small>{slide.heading || `Slide ${slide.page}`}</small></span></label>;
+                          return <label key={slide.page}><input aria-label={`Select page ${slide.page}`} type="checkbox" checked={checked} onChange={(event) => toggleQuestionSlide(lecture.id, slide.page, event.target.checked)}/><span><strong>Page {slide.page}</strong><small>{slide.heading || `Slide ${slide.page}`}</small></span></label>;
                         })}</div>}
                       </section>;
                     })}</div>
                   </div>;
                 })}</section>;
-              })}</div>
+              })}</div>}
+              {questionSourceMode === "slo" && <div className="question-source-tree question-slo-source-tree">{academicYears.map((year) => {
+                const yearLectures = lectures.filter((lecture) => lecture.academicYear === year && lecture.slos.length > 0);
+                if (!yearLectures.length) return null;
+                return <section key={year}><h3>{year}</h3>{(coursesByYear[year] ?? []).map((course) => {
+                  const courseLectures = yearLectures.filter((lecture) => lecture.course === course);
+                  if (!courseLectures.length) return null;
+                  const courseKeys = courseLectures.flatMap((lecture) => lecture.slos.map((_, index) => questionSloKey(lecture.id, index)));
+                  const courseSelected = courseKeys.every((key) => selectedQuestionSloKeys.has(key));
+                  return <div className="question-source-course" key={course}>
+                    <label className="question-source-course-head"><input type="checkbox" checked={courseSelected} onChange={() => setSelectedQuestionSloKeys((current) => { const next = new Set(current); courseKeys.forEach((key) => courseSelected ? next.delete(key) : next.add(key)); return next; })}/><strong>{course}</strong><span>{courseKeys.length} SLOs</span></label>
+                    <div>{courseLectures.map((lecture) => {
+                      const lectureKeys = lecture.slos.map((_, index) => questionSloKey(lecture.id, index));
+                      const lectureSelected = lectureKeys.every((key) => selectedQuestionSloKeys.has(key));
+                      return <section className="question-source-lecture question-slo-selection" key={lecture.id}>
+                        <div><label><input aria-label={`Select all SLOs from ${lecture.title}`} type="checkbox" checked={lectureSelected} onChange={() => setSelectedQuestionSloKeys((current) => { const next = new Set(current); lectureKeys.forEach((key) => lectureSelected ? next.delete(key) : next.add(key)); return next; })}/><span><strong>{lecture.title}</strong><small>{lecturerFolderLabel(lecture.lecturer)} · {lecture.slos.length} SLOs</small></span></label></div>
+                        <div className="question-slide-selection">{lecture.slos.map((slo, index) => <label key={index}><input aria-label={`Select SLO ${index + 1} from ${lecture.title}`} type="checkbox" checked={selectedQuestionSloKeys.has(questionSloKey(lecture.id, index))} onChange={(event) => toggleQuestionSlo(lecture.id, index, event.target.checked)}/><span><strong>SLO {index + 1}</strong><small>{slo}</small></span></label>)}</div>
+                      </section>;
+                    })}</div>
+                  </div>;
+                })}</section>;
+              })}</div>}
+              {questionSourceMode === "preread" && <div className="question-source-tree question-preread-source-tree">{Array.from(new Set(preReads.map((preRead) => preRead.academicYear))).sort().reverse().map((year) => {
+                const yearPreReads = preReads.filter((preRead) => preRead.academicYear === year);
+                return <section key={year}><h3>{year}</h3>{Array.from(new Set(yearPreReads.map((preRead) => preRead.course))).sort(compareText).map((course) => {
+                  const coursePreReads = yearPreReads.filter((preRead) => preRead.course === course);
+                  const courseIds = coursePreReads.map((preRead) => preRead.id);
+                  const courseSelected = courseIds.every((id) => selectedQuestionPreReadIds.has(id));
+                  return <div className="question-source-course" key={course}>
+                    <label className="question-source-course-head"><input type="checkbox" checked={courseSelected} onChange={() => setQuestionPreReadSelection(courseIds, !courseSelected)}/><strong>{course}</strong><span>{coursePreReads.length} pre-reads</span></label>
+                    <div>{coursePreReads.map((preRead) => <section className="question-source-lecture" key={preRead.id}><div><label><input aria-label={`Select ${preRead.title}`} type="checkbox" checked={selectedQuestionPreReadIds.has(preRead.id)} onChange={(event) => setQuestionPreReadSelection([preRead.id], event.target.checked)}/><span><strong>{preRead.title}</strong><small>{preRead.author} · {preRead.sourceType === "pdf" ? `${preRead.pages.length || 1} page${preRead.pages.length === 1 ? "" : "s"}` : "saved reading"}</small></span></label></div></section>)}</div>
+                  </div>;
+                })}</section>;
+              })}{preReads.length === 0 && <div className="question-source-empty"><strong>No pre-reads yet</strong><span>Add a pre-read before drafting from assigned reading.</span></div>}</div>}
               <footer><button disabled={questionGenerating} onClick={() => setQuestionBuilderOpen(false)}>Cancel</button><button className="question-generate-confirm" disabled={questionGenerating || selectedQuestionSourceCount === 0} onClick={() => void generateQuestionDrafts()}>{questionGenerating ? "Luna is drafting…" : `Draft ${questionCount} questions`}</button></footer>
             </> : <>
               <div className="question-review-toolbar"><span><strong>{questionDrafts.filter((draft) => draft.approved).length}</strong> of {questionDrafts.length} approved</span><div><button onClick={() => setQuestionDrafts((current) => current?.map((draft) => ({ ...draft, approved: true })) ?? null)}>Approve all</button><button onClick={() => setQuestionDrafts((current) => current?.map((draft) => ({ ...draft, approved: false })) ?? null)}>Reject all</button></div></div>
               <div className="question-draft-list">{questionDrafts.map((draft, index) => {
                 const sourceLecture = lectures.find((lecture) => lecture.id === draft.sourceLectureId);
+                const sourcePreRead = preReads.find((preRead) => preRead.id === draft.sourcePreReadId);
+                const sourceDetail = draft.sourceKind === "slo"
+                  ? `SLO ${draft.sourceSloIndexes.map((sloIndex) => sloIndex + 1).join(", ")}`
+                  : draft.sourcePages.length ? draft.sourcePages.map((page) => `p.${page}`).join(", ") : draft.sourceKind === "preread" ? "Saved reading" : "Full lecture";
                 return <article className={`question-draft-card ${draft.approved ? "approved" : ""}`} key={draft.id}>
-                  <header><label><input type="checkbox" checked={draft.approved} onChange={(event) => updateQuestionDraft(draft.id, { approved: event.target.checked })}/><span>{draft.approved ? "Approved" : "Not approved"}</span></label><small>{sourceLecture?.title ?? "Unknown lecture"} · {draft.sourcePages.map((page) => `p.${page}`).join(", ")}</small><button aria-label={`Remove draft question ${index + 1}`} onClick={() => setQuestionDrafts((current) => current?.filter((item) => item.id !== draft.id) ?? null)}><AppIcon name="trash"/></button></header>
+                  <header><label><input type="checkbox" checked={draft.approved} onChange={(event) => updateQuestionDraft(draft.id, { approved: event.target.checked })}/><span>{draft.approved ? "Approved" : "Not approved"}</span></label><small>{sourceLecture?.title ?? sourcePreRead?.title ?? "Unknown source"} · {sourceDetail}</small><button aria-label={`Remove draft question ${index + 1}`} onClick={() => setQuestionDrafts((current) => current?.filter((item) => item.id !== draft.id) ?? null)}><AppIcon name="trash"/></button></header>
                   <div className="question-draft-fields">
                     <div className="question-draft-type"><span>Question type</span><strong>Multiple choice</strong></div>
                     <label><span>Question</span><textarea value={draft.prompt} onChange={(event) => updateQuestionDraft(draft.id, { prompt: event.target.value })}/></label>

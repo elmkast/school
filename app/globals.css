@@ -606,6 +606,9 @@ button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-vis
 .question-builder-modal .icon-button { border:0; background:none; padding:4px; cursor:pointer; }
 .question-builder-modal .icon-button svg { width:18px; height:18px; }
 .question-builder-options { flex:none; padding:14px 22px; display:grid; grid-template-columns:150px minmax(0,1fr); gap:15px; border-bottom:1px solid #e0e2e4; background:#f5f6f7; }
+.question-source-mode-tabs{display:flex;gap:4px;padding:10px 22px 0;background:#f5f6f7;border-bottom:1px solid #e0e2e4}
+.question-source-mode-tabs button{border:1px solid transparent;border-bottom:0;background:transparent;color:#626a71;padding:9px 13px;font-size:11px;font-weight:700;cursor:pointer}
+.question-source-mode-tabs button.active{background:#fff;border-color:#cfd3d6;color:#22282d}
 .question-builder-options label,.question-draft-fields label { display:grid; gap:5px; }
 .question-builder-options label>span,.question-draft-fields label>span,.draft-options>span { color:#596168; font-size:9px; font-weight:700; letter-spacing:.45px; text-transform:uppercase; }
 .question-builder-options input,.question-builder-options textarea,.question-draft-fields textarea,.question-draft-fields select,.draft-options input { width:100%; border:1px solid #c8cdd1; border-radius:var(--radius-sm); background:#fff; color:#252a2f; padding:8px 9px; outline:0; font-size:11px; }
@@ -617,6 +620,10 @@ button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-vis
 .question-source-tree,.question-draft-list { flex:1; overflow:auto; padding:16px 22px 22px; }
 .question-source-tree>section+section { margin-top:16px; }
 .question-source-tree h3 { margin:0 0 7px; color:#4e565d; font-size:11px; letter-spacing:.5px; }
+.question-slo-selection .question-slide-selection small{white-space:normal;line-height:1.45}
+.question-source-empty{display:grid;gap:5px;place-items:center;padding:35px;color:#697178;text-align:center}
+.question-source-empty strong{color:#2a3035}
+.question-preread-bank{margin-top:12px}
 .question-source-course { border:1px solid #d9dde0; border-radius:var(--radius-sm); overflow:hidden; }
 .question-source-course+.question-source-course { margin-top:9px; }
 .question-source-course-head { padding:9px 10px; display:flex; align-items:center; gap:8px; background:#f1f2f3; cursor:pointer; }
