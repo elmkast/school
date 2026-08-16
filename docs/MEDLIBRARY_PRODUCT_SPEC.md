@@ -223,9 +223,9 @@ Status definitions:
 | Question Bank curriculum tree | Implemented | Mirrors the Lectures/SLO year, course, and lecturer hierarchy and counts approved questions within each folder | Add user-created sets, tags, and multi-course filters only after the core practice workflow is validated |
 | Source-page return | Implemented | Every approved question can reopen its source lecture at the cited PDF page | Highlight the supporting passage when reliable text coordinates are available |
 | Compact bank browsing | Implemented | Lecture groups are collapsed by default and show question counts, reducing the need to scroll through every full question card | Add text search and question-type filters when the bank becomes substantially larger |
-| Quiz builder | Implemented | Select any combination of lectures with per-lecture question counts, choose up to 100 questions, and start a non-persistent randomized attempt | Add question-type, flagged-only, difficulty, and unused-question settings without cluttering the initial builder |
+| Quiz builder | Implemented | Select any combination of lectures with per-lecture question counts, choose up to 100 questions, and start a non-persistent randomized attempt. Optional history filters combine as `not seen before OR previously answered incorrectly`, while the curriculum-week filter is applied with `AND`; matching counts and source selection update before the quiz begins | Add flagged-only and difficulty settings without cluttering the initial builder |
 | Focused quiz session | Implemented | Shows one question at a time, randomizes question and answer-choice order, grades multiple choice automatically, and reveals the saved answer and explanation after submission; persistent Previous/Next controls allow free movement while retaining each response, and results remain gated until every question is complete | Add keyboard shortcuts and optional timing only if needed |
-| Quiz results and review | Implemented | Calculates percent correct and opens a one-question-at-a-time review of every incorrect response; attempts are intentionally not persisted | Add spaced repetition, longitudinal performance history, and SLO-level analytics as opt-in later capabilities |
+| Quiz results and review | Implemented | Calculates percent correct and opens a one-question-at-a-time review of every incorrect response; complete attempts are intentionally not persisted, but per-question aggregate counts for seen, correct, and incorrect answers are retained for future quiz filtering | Add spaced repetition, richer longitudinal performance history, and SLO-level analytics as opt-in later capabilities |
 | Question-specific Luna chat | Implemented | Opens a non-persistent discussion from Question Bank or an active quiz question; Luna can explain, challenge, or clarify the item using general medical knowledge | Add optional source retrieval and feedback instrumentation |
 | Approval-gated AI question editing | Implemented | An edit request produces a complete four-choice replacement in a separate review panel; the stored question remains unchanged until the student explicitly approves, and an edited active quiz item resets its response | Add revision history and side-by-side textual diff highlighting |
 
@@ -499,6 +499,10 @@ This mapping is now the working private-beta architecture. Future work should ha
 - `generation_model`
 - `generation_prompt_version`
 - `approved_at`
+- `times_seen`
+- `times_correct`
+- `times_incorrect`
+- `last_answered_at`
 - `quality_signal` (`great`, neutral, or soft-deleted; planned)
 - `created_at`
 

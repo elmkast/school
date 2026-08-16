@@ -106,6 +106,7 @@ type PreReadDraft = {
 };
 
 type QuestionSourceMode = "lecture" | "slo" | "preread";
+type QuizHistoryFilter = "unseen" | "incorrect";
 
 type LunaChatMessage = {
   id: string;
@@ -200,6 +201,8 @@ export default function Home() {
   const [questionEditProposal, setQuestionEditProposal] = useState<QuestionEditProposal | null>(null);
   const [quizBuilderOpen, setQuizBuilderOpen] = useState(false);
   const [selectedQuizLectureIds, setSelectedQuizLectureIds] = useState<Set<string>>(new Set());
+  const [quizHistoryFilters, setQuizHistoryFilters] = useState<Set<QuizHistoryFilter>>(new Set());
+  const [quizWeekFilter, setQuizWeekFilter] = useState("all");
   const [quizQuestionCount, setQuizQuestionCount] = useState(10);
   const [quizQuestions, setQuizQuestions] = useState<QuizQuestion[]>([]);
   const [quizResponses, setQuizResponses] = useState<Record<string, QuizResponse>>({});
@@ -798,6 +801,9 @@ export default function Home() {
         sourcePreReadId: undefined,
         sourceSloIndexes: draft.sourceSloIndexes,
         sourcePages: draft.sourcePages,
+        timesSeen: 0,
+        timesCorrect: 0,
+        timesIncorrect: 0,
         createdAt: now,
       }));
       if (!additions.length) return lecture;
@@ -819,6 +825,9 @@ export default function Home() {
         sourcePreReadId: preRead.id,
         sourceSloIndexes: [],
         sourcePages: preRead.pages.length ? draft.sourcePages : [],
+        timesSeen: 0,
+        timesCorrect: 0,
+        timesIncorrect: 0,
         createdAt: now,
       }));
       if (!additions.length) return preRead;
@@ -1001,10 +1010,44 @@ export default function Home() {
     });
   }
 
+  function toggleQuizHistoryFilter(filter: QuizHistoryFilter) {
+    setQuizHistoryFilters((current) => {
+      const next = new Set(current);
+      if (next.has(filter)) next.delete(filter); else next.add(filter);
+      return next;
+    });
+  }
+
+  function questionMatchesQuizFilters(lecture: Lecture, question: QuestionRecord) {
+    const weekMatches = quizWeekFilter === "all"
+      || (quizWeekFilter === "unassigned" ? lecture.week === null : lecture.week === Number(quizWeekFilter));
+    if (!weekMatches) return false;
+    if (!quizHistoryFilters.size) return true;
+    return (quizHistoryFilters.has("unseen") && question.timesSeen === 0)
+      || (quizHistoryFilters.has("incorrect") && question.timesIncorrect > 0);
+  }
+
+  async function recordQuizPerformance(quizQuestion: QuizQuestion, correct: boolean) {
+    const lecture = lectures.find((item) => item.id === quizQuestion.lectureId);
+    const storedQuestion = lecture?.questions.find((question) => question.id === quizQuestion.question.id);
+    if (!lecture || !storedQuestion) return;
+    const updatedQuestion: QuestionRecord = {
+      ...storedQuestion,
+      timesSeen: storedQuestion.timesSeen + 1,
+      timesCorrect: storedQuestion.timesCorrect + (correct ? 1 : 0),
+      timesIncorrect: storedQuestion.timesIncorrect + (correct ? 0 : 1),
+      lastAnsweredAt: new Date().toISOString(),
+    };
+    const updatedLecture = { ...lecture, questions: lecture.questions.map((question) => question.id === storedQuestion.id ? updatedQuestion : question) };
+    setLectures((current) => current.map((item) => item.id === lecture.id ? updatedLecture : item));
+    setQuizQuestions((current) => current.map((item) => item.key === quizQuestion.key ? { ...item, question: { ...item.question, ...updatedQuestion, options: item.question.options } } : item));
+    await saveLecture(updatedLecture);
+  }
+
   function startQuiz() {
     const pool = questionLectures
       .filter((lecture) => selectedQuizLectureIds.has(lecture.id))
-      .flatMap((lecture) => lecture.questions.map<QuizQuestion>((question) => ({
+      .flatMap((lecture) => lecture.questions.filter((question) => questionMatchesQuizFilters(lecture, question)).map<QuizQuestion>((question) => ({
         key: `${lecture.id}::${question.id}`,
         lectureId: lecture.id,
         lectureTitle: lecture.title,
@@ -1043,6 +1086,7 @@ export default function Home() {
       ...responses,
       [current.key]: { response, submitted: true, correct },
     }));
+    if (correct !== null) void recordQuizPerformance(current, correct);
   }
 
   function gradeShortAnswer(correct: boolean) {
@@ -1050,6 +1094,7 @@ export default function Home() {
     const response = current ? quizResponses[current.key] : undefined;
     if (!current || current.question.type !== "short-answer" || !response?.submitted) return;
     setQuizResponses((responses) => ({ ...responses, [current.key]: { ...response, correct } }));
+    void recordQuizPerformance(current, correct);
   }
 
   function advanceQuiz() {
@@ -1467,7 +1512,9 @@ export default function Home() {
     : questionSourceMode === "preread"
       ? selectedQuestionPreReadIds.size
       : selectedQuestionLectureIds.size + selectedQuestionSlideKeys.size;
-  const selectedQuizQuestionCount = questionLectures.filter((lecture) => selectedQuizLectureIds.has(lecture.id)).reduce((total, lecture) => total + lecture.questions.length, 0);
+  const quizEligibleLectures = questionLectures.filter((lecture) => lecture.questions.some((question) => questionMatchesQuizFilters(lecture, question)));
+  const selectedQuizLectureCount = quizEligibleLectures.filter((lecture) => selectedQuizLectureIds.has(lecture.id)).length;
+  const selectedQuizQuestionCount = quizEligibleLectures.filter((lecture) => selectedQuizLectureIds.has(lecture.id)).reduce((total, lecture) => total + lecture.questions.filter((question) => questionMatchesQuizFilters(lecture, question)).length, 0);
   const quizQuestionLimit = Math.min(100, selectedQuizQuestionCount);
   const effectiveQuizQuestionCount = quizQuestionLimit > 0 ? Math.min(Math.max(1, quizQuestionCount), quizQuestionLimit) : 0;
   const currentQuizQuestion = quizQuestions[quizIndex];
@@ -1769,21 +1816,28 @@ export default function Home() {
             <div className="quiz-builder-options">
               <label><span>Number of questions</span><input type="number" min="1" max={Math.max(1, quizQuestionLimit)} disabled={quizQuestionLimit === 0} value={effectiveQuizQuestionCount || 1} onChange={(event) => setQuizQuestionCount(Math.min(100, Math.max(1, Number(event.target.value) || 1)))}/><small>{quizQuestionLimit} available from this selection · 100 maximum</small></label>
               <div className="quiz-order-setting"><span>Question order</span><strong>Randomized</strong><small>Lectures and questions will be interleaved.</small></div>
+              <div className="quiz-filter-panel">
+                <fieldset><legend>Question history <b>OR</b></legend><label><input aria-label="Include questions not seen before" type="checkbox" checked={quizHistoryFilters.has("unseen")} onChange={() => toggleQuizHistoryFilter("unseen")}/><span><strong>Not seen before</strong><small>Questions you have never submitted.</small></span></label><label><input aria-label="Include questions previously answered incorrectly" type="checkbox" checked={quizHistoryFilters.has("incorrect")} onChange={() => toggleQuizHistoryFilter("incorrect")}/><span><strong>Previously answered incorrectly</strong><small>Questions missed at least once.</small></span></label></fieldset>
+                <label className="quiz-week-filter"><span>Curriculum week <b>AND</b></span><select value={quizWeekFilter} onChange={(event) => setQuizWeekFilter(event.target.value)}><option value="all">All weeks</option>{LECTURE_WEEK_OPTIONS.map((week) => <option key={week} value={week}>Week {week}</option>)}<option value="unassigned">Week unassigned</option></select><small>The week filter narrows the history pool.</small></label>
+                <p>{quizHistoryFilters.size ? `(${[quizHistoryFilters.has("unseen") ? "unseen" : "", quizHistoryFilters.has("incorrect") ? "previously incorrect" : ""].filter(Boolean).join(" OR ")})` : "All question history"} AND {quizWeekFilter === "all" ? "all weeks" : quizWeekFilter === "unassigned" ? "week unassigned" : `Week ${quizWeekFilter}`}</p>
+              </div>
             </div>
-            <div className="question-source-toolbar quiz-source-toolbar"><span><strong>{selectedQuizLectureIds.size}</strong> lecture{selectedQuizLectureIds.size === 1 ? "" : "s"} · <strong>{selectedQuizQuestionCount}</strong> question{selectedQuizQuestionCount === 1 ? "" : "s"}</span><div><button onClick={() => setQuizLectureSelection(questionLectures.map((lecture) => lecture.id), true)}>Select all</button><button onClick={() => setSelectedQuizLectureIds(new Set())}>Clear</button></div></div>
+            <div className="question-source-toolbar quiz-source-toolbar"><span><strong>{selectedQuizLectureCount}</strong> lecture{selectedQuizLectureCount === 1 ? "" : "s"} · <strong>{selectedQuizQuestionCount}</strong> matching question{selectedQuizQuestionCount === 1 ? "" : "s"}</span><div><button onClick={() => setQuizLectureSelection(quizEligibleLectures.map((lecture) => lecture.id), true)}>Select all matching</button><button onClick={() => setSelectedQuizLectureIds(new Set())}>Clear</button></div></div>
             <div className="quiz-source-tree">{questionAcademicYears.map((year) => {
-              const yearLectures = questionLectures.filter((lecture) => lecture.academicYear === year);
+              const yearLectures = quizEligibleLectures.filter((lecture) => lecture.academicYear === year);
+              if (!yearLectures.length) return null;
               return <section key={year}><h3>{year}</h3>{(questionCoursesByYear[year] ?? []).map((course) => {
                 const courseLectures = yearLectures.filter((lecture) => lecture.course === course);
+                if (!courseLectures.length) return null;
                 const courseIds = courseLectures.map((lecture) => lecture.id);
                 const courseSelected = courseIds.length > 0 && courseIds.every((id) => selectedQuizLectureIds.has(id));
-                const courseQuestionCount = courseLectures.reduce((total, lecture) => total + lecture.questions.length, 0);
+                const courseQuestionCount = courseLectures.reduce((total, lecture) => total + lecture.questions.filter((question) => questionMatchesQuizFilters(lecture, question)).length, 0);
                 return <div className="quiz-source-course" key={course}>
                   <label className="quiz-source-course-head"><input type="checkbox" checked={courseSelected} onChange={() => setQuizLectureSelection(courseIds, !courseSelected)}/><strong>{course}</strong><span>{courseQuestionCount} questions</span></label>
-                  <div>{courseLectures.map((lecture) => <label className="quiz-source-lecture" key={lecture.id}><input type="checkbox" checked={selectedQuizLectureIds.has(lecture.id)} onChange={(event) => setQuizLectureSelection([lecture.id], event.target.checked)}/><span><strong>{lecture.title}</strong><small>{lecturerFolderLabel(lecture.lecturer)}</small></span><b>{lecture.questions.length}</b></label>)}</div>
+                  <div>{courseLectures.map((lecture) => { const matchingCount = lecture.questions.filter((question) => questionMatchesQuizFilters(lecture, question)).length; return <label className="quiz-source-lecture" key={lecture.id}><input type="checkbox" checked={selectedQuizLectureIds.has(lecture.id)} onChange={(event) => setQuizLectureSelection([lecture.id], event.target.checked)}/><span><strong>{lecture.title}</strong><small>{lecturerFolderLabel(lecture.lecturer)} · {lectureWeekLabel(lecture.week)}</small></span><b>{matchingCount}</b></label>; })}</div>
                 </div>;
               })}</section>;
-            })}</div>
+            })}{quizEligibleLectures.length === 0 && <div className="quiz-source-empty"><strong>No questions match these filters</strong><span>Broaden the history selection or choose another curriculum week.</span></div>}</div>
             <footer><button onClick={() => setQuizBuilderOpen(false)}>Cancel</button><button className="quiz-start-button" disabled={effectiveQuizQuestionCount === 0} onClick={startQuiz}>{effectiveQuizQuestionCount > 0 ? `Start ${effectiveQuizQuestionCount} question${effectiveQuizQuestionCount === 1 ? "" : "s"}` : "Start quiz"}</button></footer>
           </section>
         </div>}

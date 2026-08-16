@@ -18,6 +18,10 @@ export type QuestionRecord = {
   sourcePreReadId?: string;
   sourceSloIndexes: number[];
   sourcePages: number[];
+  timesSeen: number;
+  timesCorrect: number;
+  timesIncorrect: number;
+  lastAnsweredAt?: string;
   createdAt: string;
 };
 
@@ -202,6 +206,10 @@ function normalizeQuestions(value: unknown, owner: { lectureId?: string; preRead
       sourcePreReadId: textValue(record.sourcePreReadId, owner.preReadId ?? "") || undefined,
       sourceSloIndexes,
       sourcePages,
+      timesSeen: typeof record.timesSeen === "number" && Number.isFinite(record.timesSeen) ? Math.max(0, Math.floor(record.timesSeen)) : 0,
+      timesCorrect: typeof record.timesCorrect === "number" && Number.isFinite(record.timesCorrect) ? Math.max(0, Math.floor(record.timesCorrect)) : 0,
+      timesIncorrect: typeof record.timesIncorrect === "number" && Number.isFinite(record.timesIncorrect) ? Math.max(0, Math.floor(record.timesIncorrect)) : 0,
+      lastAnsweredAt: textValue(record.lastAnsweredAt) || undefined,
       createdAt: textValue(record.createdAt, new Date().toISOString()),
     }];
   });
