@@ -1053,8 +1053,14 @@ export default function Home() {
   }
 
   function advanceQuiz() {
-    if (quizIndex >= quizQuestions.length - 1) setQuizMode("results");
-    else setQuizIndex((index) => index + 1);
+    const incompleteIndex = quizQuestions.findIndex((question, index) => index > quizIndex && !(quizResponses[question.key]?.submitted && (question.question.type !== "short-answer" || quizResponses[question.key]?.correct !== null)));
+    const wrappedIncompleteIndex = incompleteIndex >= 0 ? incompleteIndex : quizQuestions.findIndex((question) => !(quizResponses[question.key]?.submitted && (question.question.type !== "short-answer" || quizResponses[question.key]?.correct !== null)));
+    if (wrappedIncompleteIndex >= 0) setQuizIndex(wrappedIncompleteIndex);
+    else setQuizMode("results");
+  }
+
+  function navigateQuiz(direction: -1 | 1) {
+    setQuizIndex((index) => Math.min(quizQuestions.length - 1, Math.max(0, index + direction)));
   }
 
   function finishQuiz() {
@@ -1467,6 +1473,8 @@ export default function Home() {
   const currentQuizQuestion = quizQuestions[quizIndex];
   const activeQuestionChatQuestion = questionFromChatTarget(questionChatTarget);
   const currentQuizResponse = currentQuizQuestion ? quizResponses[currentQuizQuestion.key] ?? { response: "", submitted: false, correct: null } : null;
+  const completedQuizQuestionCount = quizQuestions.filter((question) => quizResponses[question.key]?.submitted && (question.question.type !== "short-answer" || quizResponses[question.key]?.correct !== null)).length;
+  const allQuizQuestionsComplete = quizQuestions.length > 0 && completedQuizQuestionCount === quizQuestions.length;
   const quizCorrectCount = quizQuestions.filter((question) => quizResponses[question.key]?.correct === true).length;
   const incorrectQuizQuestions = quizQuestions.filter((question) => quizResponses[question.key]?.correct === false);
   const quizPercent = quizQuestions.length ? Math.round((quizCorrectCount / quizQuestions.length) * 100) : 0;
@@ -1800,7 +1808,11 @@ export default function Home() {
                   {currentQuizQuestion.question.explanation && <div><small>Explanation</small><p>{currentQuizQuestion.question.explanation}</p></div>}
                   {currentQuizQuestion.question.type === "short-answer" && currentQuizResponse.correct === null && <div className="quiz-self-grade"><span>How did you do?</span><button onClick={() => gradeShortAnswer(false)}>Mark incorrect</button><button onClick={() => gradeShortAnswer(true)}>Mark correct</button></div>}
                 </div>}
-                <footer><div className="quiz-question-tools"><button className="quiz-delete-question" onClick={() => void deleteCurrentQuizQuestion()}>Delete question</button><button className="quiz-ask-luna" onClick={() => openQuestionChat("lecture", currentQuizQuestion.lectureId, currentQuizQuestion.lectureTitle, currentQuizQuestion.question.id)}>Ask Luna</button></div>{!currentQuizResponse.submitted ? <button className="quiz-submit-answer" disabled={!currentQuizResponse.response.trim()} onClick={submitQuizAnswer}>Submit answer</button> : <button className="quiz-next-question" disabled={currentQuizQuestion.question.type === "short-answer" && currentQuizResponse.correct === null} onClick={advanceQuiz}>{quizIndex >= quizQuestions.length - 1 ? "See results" : "Next question"}</button>}</footer>
+                <footer>
+                  <div className="quiz-question-tools"><button className="quiz-delete-question" onClick={() => void deleteCurrentQuizQuestion()}>Delete question</button><button className="quiz-ask-luna" onClick={() => openQuestionChat("lecture", currentQuizQuestion.lectureId, currentQuizQuestion.lectureTitle, currentQuizQuestion.question.id)}>Ask Luna</button></div>
+                  <nav className="quiz-question-navigation" aria-label="Quiz question navigation"><button disabled={quizIndex === 0} onClick={() => navigateQuiz(-1)}>Previous</button><span>{quizIndex + 1} / {quizQuestions.length}</span><button disabled={quizIndex >= quizQuestions.length - 1} onClick={() => navigateQuiz(1)}>Next</button></nav>
+                  {!currentQuizResponse.submitted ? <button className="quiz-submit-answer" disabled={!currentQuizResponse.response.trim()} onClick={submitQuizAnswer}>Submit answer</button> : <button className="quiz-next-question" disabled={currentQuizQuestion.question.type === "short-answer" && currentQuizResponse.correct === null} onClick={advanceQuiz}>{allQuizQuestionsComplete ? "See results" : "Next unanswered"}</button>}
+                </footer>
               </article>
             </div>
           </>}
