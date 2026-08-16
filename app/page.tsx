@@ -114,7 +114,17 @@ type LunaChatMessage = {
   page: number;
 };
 
-function aiEndpoint(action: "analyze" | "chat" | "reparse-slos" | "generate-questions") {
+type QuestionChatTarget = {
+  ownerKind: "lecture" | "preread";
+  ownerId: string;
+  sourceTitle: string;
+  questionId: string;
+};
+
+type QuestionChatMessage = { id: string; role: "user" | "assistant"; text: string };
+type QuestionEditProposal = { prompt: string; options: string[]; answer: string; explanation: string };
+
+function aiEndpoint(action: "analyze" | "chat" | "reparse-slos" | "generate-questions" | "question-chat") {
   return `/.netlify/functions/${action}`;
 }
 
@@ -183,6 +193,11 @@ export default function Home() {
   const [revealedQuestionIds, setRevealedQuestionIds] = useState<Set<string>>(new Set());
   const [expandedQuestionBankLectureIds, setExpandedQuestionBankLectureIds] = useState<Set<string>>(new Set());
   const [expandedQuestionBankPreReadIds, setExpandedQuestionBankPreReadIds] = useState<Set<string>>(new Set());
+  const [questionChatTarget, setQuestionChatTarget] = useState<QuestionChatTarget | null>(null);
+  const [questionChatMessages, setQuestionChatMessages] = useState<QuestionChatMessage[]>([]);
+  const [questionChatDraft, setQuestionChatDraft] = useState("");
+  const [questionChatLoading, setQuestionChatLoading] = useState(false);
+  const [questionEditProposal, setQuestionEditProposal] = useState<QuestionEditProposal | null>(null);
   const [quizBuilderOpen, setQuizBuilderOpen] = useState(false);
   const [selectedQuizLectureIds, setSelectedQuizLectureIds] = useState<Set<string>>(new Set());
   const [quizQuestionCount, setQuizQuestionCount] = useState(10);
@@ -290,7 +305,6 @@ export default function Home() {
     if (!localReady || !cloudSession) return;
     let cancelled = false;
     // Cloud hydration deliberately gates the signed-in library until its first snapshot arrives.
-    // eslint-disable-next-line react-hooks/set-state-in-effect
     setCloudReady(false);
     setCloudUser(cloudSession.user.id);
     void loadCloudLibrary()
@@ -840,6 +854,100 @@ export default function Home() {
     setNotice("Question removed.");
   }
 
+  function questionFromChatTarget(target: QuestionChatTarget | null) {
+    if (!target) return undefined;
+    return target.ownerKind === "lecture"
+      ? lectures.find((lecture) => lecture.id === target.ownerId)?.questions.find((question) => question.id === target.questionId)
+      : preReads.find((preRead) => preRead.id === target.ownerId)?.questions.find((question) => question.id === target.questionId);
+  }
+
+  function openQuestionChat(ownerKind: "lecture" | "preread", ownerId: string, sourceTitle: string, questionId: string) {
+    setQuestionChatTarget({ ownerKind, ownerId, sourceTitle, questionId });
+    setQuestionChatMessages([]);
+    setQuestionChatDraft("");
+    setQuestionEditProposal(null);
+  }
+
+  function closeQuestionChat() {
+    if (questionChatLoading) return;
+    setQuestionChatTarget(null);
+    setQuestionChatMessages([]);
+    setQuestionChatDraft("");
+    setQuestionEditProposal(null);
+  }
+
+  async function sendQuestionChat() {
+    const message = questionChatDraft.trim();
+    const question = questionFromChatTarget(questionChatTarget);
+    if (!message || !question || questionChatLoading) return;
+    const userMessage: QuestionChatMessage = { id: crypto.randomUUID(), role: "user", text: message };
+    setQuestionChatMessages((current) => [...current, userMessage]);
+    setQuestionChatDraft("");
+    setQuestionEditProposal(null);
+    setQuestionChatLoading(true);
+    try {
+      const response = await fetch(aiEndpoint("question-chat"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          message,
+          question: { prompt: question.prompt, options: question.options, answer: question.answer, explanation: question.explanation },
+          history: questionChatMessages.slice(-8).map(({ role, text }) => ({ role, text })),
+        }),
+      });
+      const data = await response.json() as { message?: string; hasProposal?: boolean; proposal?: unknown; error?: string; detail?: string };
+      if (!response.ok) throw new Error(data.error || data.detail || "Luna could not answer.");
+      const assistantText = typeof data.message === "string" && data.message.trim() ? data.message.trim() : "I reviewed the question.";
+      setQuestionChatMessages((current) => [...current, { id: crypto.randomUUID(), role: "assistant", text: assistantText }]);
+      if (data.hasProposal && data.proposal && typeof data.proposal === "object" && !Array.isArray(data.proposal)) {
+        const proposal = data.proposal as Record<string, unknown>;
+        const options = Array.isArray(proposal.options) ? proposal.options.filter((option): option is string => typeof option === "string" && Boolean(option.trim())).map((option) => option.trim()) : [];
+        const answer = typeof proposal.answer === "string" ? proposal.answer.trim() : "";
+        const prompt = typeof proposal.prompt === "string" ? proposal.prompt.trim() : "";
+        if (prompt && options.length === 4 && answer && options.includes(answer)) {
+          setQuestionEditProposal({ prompt, options, answer, explanation: typeof proposal.explanation === "string" ? proposal.explanation.trim() : "" });
+        } else {
+          setQuestionChatMessages((current) => [...current, { id: crypto.randomUUID(), role: "assistant", text: "I could not produce a valid four-choice revision. Ask me to try the edit again with more specific direction." }]);
+        }
+      }
+    } catch (error) {
+      setQuestionChatMessages((current) => [...current, { id: crypto.randomUUID(), role: "assistant", text: error instanceof Error ? error.message : "Luna could not answer." }]);
+    } finally {
+      setQuestionChatLoading(false);
+    }
+  }
+
+  async function approveQuestionEdit() {
+    const target = questionChatTarget;
+    const question = questionFromChatTarget(target);
+    const proposal = questionEditProposal;
+    if (!target || !question || !proposal) return;
+    const updatedQuestion: QuestionRecord = { ...question, ...proposal, type: "multiple-choice" };
+    if (target.ownerKind === "lecture") {
+      const lecture = lectures.find((item) => item.id === target.ownerId);
+      if (!lecture) return;
+      const updated = { ...lecture, questions: lecture.questions.map((item) => item.id === question.id ? updatedQuestion : item) };
+      setLectures((current) => current.map((item) => item.id === updated.id ? updated : item));
+      await saveLecture(updated);
+    } else {
+      const preRead = preReads.find((item) => item.id === target.ownerId);
+      if (!preRead) return;
+      const updated = { ...preRead, questions: preRead.questions.map((item) => item.id === question.id ? updatedQuestion : item) };
+      setPreReads((current) => current.map((item) => item.id === updated.id ? updated : item));
+      await savePreRead(updated);
+    }
+    const affectedQuizKeys = quizQuestions.filter((item) => item.question.id === question.id).map((item) => item.key);
+    setQuizQuestions((current) => current.map((item) => item.question.id === question.id ? { ...item, question: updatedQuestion } : item));
+    if (affectedQuizKeys.length && quizMode === "taking") setQuizResponses((current) => {
+      const next = { ...current };
+      affectedQuizKeys.forEach((key) => { next[key] = { response: "", submitted: false, correct: null }; });
+      return next;
+    });
+    setQuestionEditProposal(null);
+    setQuestionChatMessages((current) => [...current, { id: crypto.randomUUID(), role: "assistant", text: "Your approved revision is now saved." }]);
+    setNotice("Question revision approved and saved.");
+  }
+
   async function deleteCurrentQuizQuestion() {
     const currentQuestion = quizQuestions[quizIndex];
     if (!currentQuestion || !window.confirm("Delete this question from the Question Bank? This cannot be undone.")) return;
@@ -1357,6 +1465,7 @@ export default function Home() {
   const quizQuestionLimit = Math.min(100, selectedQuizQuestionCount);
   const effectiveQuizQuestionCount = quizQuestionLimit > 0 ? Math.min(Math.max(1, quizQuestionCount), quizQuestionLimit) : 0;
   const currentQuizQuestion = quizQuestions[quizIndex];
+  const activeQuestionChatQuestion = questionFromChatTarget(questionChatTarget);
   const currentQuizResponse = currentQuizQuestion ? quizResponses[currentQuizQuestion.key] ?? { response: "", submitted: false, correct: null } : null;
   const quizCorrectCount = quizQuestions.filter((question) => quizResponses[question.key]?.correct === true).length;
   const incorrectQuizQuestions = quizQuestions.filter((question) => quizResponses[question.key]?.correct === false);
@@ -1623,7 +1732,7 @@ export default function Home() {
                 <h3>{question.prompt}</h3>
                 {question.type === "multiple-choice" && <ol className="question-options" type="A">{question.options.map((option) => <li key={option}>{option}</li>)}</ol>}
                 {revealed && <div className="question-answer"><strong>Answer</strong><p>{question.answer}</p>{question.explanation && <><strong>Explanation</strong><p>{question.explanation}</p></>}</div>}
-                <footer><button onClick={() => setRevealedQuestionIds((current) => { const next = new Set(current); if (revealed) next.delete(question.id); else next.add(question.id); return next; })}>{revealed ? "Hide answer" : "Show answer"}</button><button className="remove-question" onClick={() => void removeQuestion(lecture.id, question.id)}>Remove</button></footer>
+                <footer><button onClick={() => openQuestionChat("lecture", lecture.id, lecture.title, question.id)}>Ask Luna</button><button onClick={() => setRevealedQuestionIds((current) => { const next = new Set(current); if (revealed) next.delete(question.id); else next.add(question.id); return next; })}>{revealed ? "Hide answer" : "Show answer"}</button><button className="remove-question" onClick={() => void removeQuestion(lecture.id, question.id)}>Remove</button></footer>
               </article>;
             })}</div>
           </CurriculumCard>;
@@ -1638,7 +1747,7 @@ export default function Home() {
                   <div className="question-meta"><span>Q{index + 1}</span><small>Pre-read · Multiple choice</small><div>{question.sourcePages.map((page) => <button key={page} onClick={() => openPreReadSource(preRead, page)}>Page {page}</button>)}</div></div>
                   <h3>{question.prompt}</h3><ol className="question-options" type="A">{question.options.map((option) => <li key={option}>{option}</li>)}</ol>
                   {revealed && <div className="question-answer"><strong>Answer</strong><p>{question.answer}</p>{question.explanation && <><strong>Explanation</strong><p>{question.explanation}</p></>}</div>}
-                  <footer><button onClick={() => setRevealedQuestionIds((current) => { const next = new Set(current); if (revealed) next.delete(question.id); else next.add(question.id); return next; })}>{revealed ? "Hide answer" : "Show answer"}</button><button className="remove-question" onClick={() => void removePreReadQuestion(preRead.id, question.id)}>Remove</button></footer>
+                  <footer><button onClick={() => openQuestionChat("preread", preRead.id, preRead.title, question.id)}>Ask Luna</button><button onClick={() => setRevealedQuestionIds((current) => { const next = new Set(current); if (revealed) next.delete(question.id); else next.add(question.id); return next; })}>{revealed ? "Hide answer" : "Show answer"}</button><button className="remove-question" onClick={() => void removePreReadQuestion(preRead.id, question.id)}>Remove</button></footer>
                 </article>;
               })}</div>
             </CurriculumCard>;
@@ -1691,12 +1800,19 @@ export default function Home() {
                   {currentQuizQuestion.question.explanation && <div><small>Explanation</small><p>{currentQuizQuestion.question.explanation}</p></div>}
                   {currentQuizQuestion.question.type === "short-answer" && currentQuizResponse.correct === null && <div className="quiz-self-grade"><span>How did you do?</span><button onClick={() => gradeShortAnswer(false)}>Mark incorrect</button><button onClick={() => gradeShortAnswer(true)}>Mark correct</button></div>}
                 </div>}
-                <footer><button className="quiz-delete-question" onClick={() => void deleteCurrentQuizQuestion()}>Delete question</button>{!currentQuizResponse.submitted ? <button className="quiz-submit-answer" disabled={!currentQuizResponse.response.trim()} onClick={submitQuizAnswer}>Submit answer</button> : <button className="quiz-next-question" disabled={currentQuizQuestion.question.type === "short-answer" && currentQuizResponse.correct === null} onClick={advanceQuiz}>{quizIndex >= quizQuestions.length - 1 ? "See results" : "Next question"}</button>}</footer>
+                <footer><div className="quiz-question-tools"><button className="quiz-delete-question" onClick={() => void deleteCurrentQuizQuestion()}>Delete question</button><button className="quiz-ask-luna" onClick={() => openQuestionChat("lecture", currentQuizQuestion.lectureId, currentQuizQuestion.lectureTitle, currentQuizQuestion.question.id)}>Ask Luna</button></div>{!currentQuizResponse.submitted ? <button className="quiz-submit-answer" disabled={!currentQuizResponse.response.trim()} onClick={submitQuizAnswer}>Submit answer</button> : <button className="quiz-next-question" disabled={currentQuizQuestion.question.type === "short-answer" && currentQuizResponse.correct === null} onClick={advanceQuiz}>{quizIndex >= quizQuestions.length - 1 ? "See results" : "Next question"}</button>}</footer>
               </article>
             </div>
           </>}
           {quizMode === "results" && <div className="quiz-results-screen"><article><small>QUIZ COMPLETE</small><h1>{quizPercent}%</h1><p>{quizCorrectCount} of {quizQuestions.length} correct</p><div className="quiz-result-counts"><span><strong>{quizCorrectCount}</strong>Correct</span><span><strong>{incorrectQuizQuestions.length}</strong>Incorrect</span></div><div className="quiz-result-actions">{incorrectQuizQuestions.length > 0 && <button onClick={() => { setQuizReviewIndex(0); setQuizMode("review"); }}>Review incorrect answers</button>}<button onClick={() => { finishQuiz(); openQuizBuilder(); }}>Take another quiz</button><button className="quiz-finish" onClick={finishQuiz}>Finish</button></div></article></div>}
-          {quizMode === "review" && reviewQuizQuestion && reviewQuizResponse && <div className="quiz-question-screen quiz-review-screen"><article className="quiz-question-card"><div className="quiz-question-source"><span>{reviewQuizQuestion.lectureTitle}</span><small>{lecturerFolderLabel(reviewQuizQuestion.lecturer)}{reviewQuizQuestion.question.sourcePages.length ? ` · PDF page ${reviewQuizQuestion.question.sourcePages.join(", ")}` : ""}</small></div><h1>{reviewQuizQuestion.question.prompt}</h1>{reviewQuizQuestion.question.type === "multiple-choice" && <div className="quiz-answer-options review">{reviewQuizQuestion.question.options.map((option, optionIndex) => <div className={option === reviewQuizQuestion.question.answer ? "correct-answer" : option === reviewQuizResponse.response ? "incorrect-answer" : ""} key={`${optionIndex}-${option}`}><b>{String.fromCharCode(65 + optionIndex)}</b><span>{option}</span></div>)}</div>}<div className="quiz-review-comparison"><div><small>Your answer</small><p>{reviewQuizResponse.response}</p></div><div><small>Correct answer</small><p>{reviewQuizQuestion.question.answer}</p></div>{reviewQuizQuestion.question.explanation && <div><small>Explanation</small><p>{reviewQuizQuestion.question.explanation}</p></div>}</div><footer className="quiz-review-navigation"><button disabled={quizReviewIndex === 0} onClick={() => setQuizReviewIndex((index) => Math.max(0, index - 1))}>Previous incorrect</button>{quizReviewIndex < incorrectQuizQuestions.length - 1 ? <button onClick={() => setQuizReviewIndex((index) => index + 1)}>Next incorrect</button> : <button onClick={() => setQuizMode("results")}>Back to results</button>}</footer></article></div>}
+          {quizMode === "review" && reviewQuizQuestion && reviewQuizResponse && <div className="quiz-question-screen quiz-review-screen"><article className="quiz-question-card">
+            <div className="quiz-question-source"><span>{reviewQuizQuestion.lectureTitle}</span><small>{lecturerFolderLabel(reviewQuizQuestion.lecturer)}{reviewQuizQuestion.question.sourcePages.length ? ` · PDF page ${reviewQuizQuestion.question.sourcePages.join(", ")}` : ""}</small></div>
+            <h1>{reviewQuizQuestion.question.prompt}</h1>
+            {reviewQuizQuestion.question.type === "multiple-choice" && <div className="quiz-answer-options review">{reviewQuizQuestion.question.options.map((option, optionIndex) => <div className={option === reviewQuizQuestion.question.answer ? "correct-answer" : option === reviewQuizResponse.response ? "incorrect-answer" : ""} key={`${optionIndex}-${option}`}><b>{String.fromCharCode(65 + optionIndex)}</b><span>{option}</span></div>)}</div>}
+            <div className="quiz-review-comparison"><div><small>Your answer</small><p>{reviewQuizResponse.response}</p></div><div><small>Correct answer</small><p>{reviewQuizQuestion.question.answer}</p></div>{reviewQuizQuestion.question.explanation && <div><small>Explanation</small><p>{reviewQuizQuestion.question.explanation}</p></div>}</div>
+            <button className="quiz-review-ask-luna" onClick={() => openQuestionChat("lecture", reviewQuizQuestion.lectureId, reviewQuizQuestion.lectureTitle, reviewQuizQuestion.question.id)}>Ask Luna about this question</button>
+            <footer className="quiz-review-navigation"><button disabled={quizReviewIndex === 0} onClick={() => setQuizReviewIndex((index) => Math.max(0, index - 1))}>Previous incorrect</button>{quizReviewIndex < incorrectQuizQuestions.length - 1 ? <button onClick={() => setQuizReviewIndex((index) => index + 1)}>Next incorrect</button> : <button onClick={() => setQuizMode("results")}>Back to results</button>}</footer>
+          </article></div>}
         </section>}
 
         {questionBuilderOpen && <div className="export-backdrop question-builder-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !questionGenerating) setQuestionBuilderOpen(false); }}>
@@ -1797,6 +1913,27 @@ export default function Home() {
               })}</div>
               <footer><button onClick={() => setQuestionDrafts(null)}>Back to sources</button><button onClick={() => setQuestionBuilderOpen(false)}>Discard drafts</button><button className="question-generate-confirm" disabled={!questionDrafts.some((draft) => draft.approved && draft.prompt.trim() && draft.answer.trim())} onClick={() => void approveQuestionDrafts()}>Add approved to bank</button></footer>
             </>}
+          </section>
+        </div>}
+
+        {questionChatTarget && activeQuestionChatQuestion && <div className="export-backdrop question-chat-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) closeQuestionChat(); }}>
+          <section className="question-chat-modal" role="dialog" aria-modal="true" aria-labelledby="question-chat-title">
+            <header><div><small>LUNA · QUESTION CHAT</small><h2 id="question-chat-title">Ask about this question</h2><p>{questionChatTarget.sourceTitle}</p></div><button className="icon-button" aria-label="Close question chat" disabled={questionChatLoading} onClick={closeQuestionChat}><AppIcon name="x"/></button></header>
+            <div className="question-chat-current"><small>CURRENT QUESTION</small><strong>{activeQuestionChatQuestion.prompt}</strong></div>
+            <div className="question-chat-thread" aria-live="polite">
+              {questionChatMessages.length === 0 && <div className="question-chat-empty"><strong>Discuss or improve this question</strong><span>Ask for clarification, challenge the answer, or tell Luna how you want the question revised.</span></div>}
+              {questionChatMessages.map((message) => <article className={message.role} key={message.id}><small>{message.role === "user" ? "YOU" : "LUNA"}</small><p>{message.text}</p></article>)}
+              {questionChatLoading && <article className="assistant loading"><small>LUNA</small><p>Reviewing the question…</p></article>}
+            </div>
+            {questionEditProposal && <section className="question-edit-proposal">
+              <header><div><small>PROPOSED REVISION</small><strong>Nothing changes until you approve.</strong></div></header>
+              <div><small>Question</small><p>{questionEditProposal.prompt}</p></div>
+              <ol type="A">{questionEditProposal.options.map((option) => <li key={option} className={option === questionEditProposal.answer ? "correct" : ""}>{option}</li>)}</ol>
+              <div><small>Correct answer</small><p>{questionEditProposal.answer}</p></div>
+              {questionEditProposal.explanation && <div><small>Explanation</small><p>{questionEditProposal.explanation}</p></div>}
+              <footer><button onClick={() => setQuestionEditProposal(null)}>Reject revision</button><button className="approve-question-edit" onClick={() => void approveQuestionEdit()}>Approve and save</button></footer>
+            </section>}
+            <form className="question-chat-composer" onSubmit={(event) => { event.preventDefault(); void sendQuestionChat(); }}><textarea aria-label="Message Luna about this question" value={questionChatDraft} onChange={(event) => setQuestionChatDraft(event.target.value)} placeholder="" disabled={questionChatLoading}/><button type="submit" disabled={questionChatLoading || !questionChatDraft.trim()}>Send</button></form>
           </section>
         </div>}
 

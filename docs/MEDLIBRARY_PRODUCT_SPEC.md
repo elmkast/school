@@ -226,6 +226,8 @@ Status definitions:
 | Quiz builder | Implemented | Select any combination of lectures with per-lecture question counts, choose up to 100 questions, and start a non-persistent randomized attempt | Add question-type, flagged-only, difficulty, and unused-question settings without cluttering the initial builder |
 | Focused quiz session | Implemented | Shows one question at a time, randomizes question and answer-choice order, grades multiple choice automatically, and reveals the saved answer and explanation after submission; legacy short-answer records remain readable | Add in-session question curation, keyboard shortcuts, and optional timing only if needed |
 | Quiz results and review | Implemented | Calculates percent correct and opens a one-question-at-a-time review of every incorrect response; attempts are intentionally not persisted | Add spaced repetition, longitudinal performance history, and SLO-level analytics as opt-in later capabilities |
+| Question-specific Luna chat | Implemented | Opens a non-persistent discussion from Question Bank or an active quiz question; Luna can explain, challenge, or clarify the item using general medical knowledge | Add optional source retrieval and feedback instrumentation |
+| Approval-gated AI question editing | Implemented | An edit request produces a complete four-choice replacement in a separate review panel; the stored question remains unchanged until the student explicitly approves, and an edited active quiz item resets its response | Add revision history and side-by-side textual diff highlighting |
 
 #### Planned Question Bank expansion
 
@@ -237,7 +239,7 @@ The next Question Bank release should treat a question's source as explicit stru
 4. **Large-pool quiz sampling:** Let the student choose how many questions to draw from a selected pool so a lecture with 100 questions does not consume the entire 100-question quiz limit.
 5. **In-quiz curation:** Delete a bad question immediately while taking a quiz, with confirmation, and mark a particularly useful question as **Great question** for later filtered review.
 6. **Variable answer-choice count:** Permit four, five, or six choices. Luna should use more than four only when the additional distractors are distinct and educationally credible; the schema must enforce 4–6 choices and exactly one matching answer.
-7. **Question-specific Luna chat:** Provide a non-persistent chat beside the active question for explanations, clarification, and discussion without forcing the student back to the lecture viewer.
+7. **Question-specific Luna chat — implemented:** Provide a non-persistent chat from Question Bank and the active quiz question for explanations, clarification, discussion, and approval-gated revisions without forcing the student back to the lecture viewer.
 
 ### 6.7 Search and retrieval
 
@@ -645,7 +647,7 @@ This mapping is now the working private-beta architecture. Future work should ha
 - Source-aware Question Bank filters and large-pool quiz sampling
 - In-quiz delete and Great question curation controls
 - Four-to-six-choice question support with validated distractors
-- Non-persistent Luna chat for the active quiz question
+- Question revision history and side-by-side change highlighting for Luna-proposed edits
 - SLO coverage mapping
 - Saved AI explanations
 - Flashcard generation with citations
