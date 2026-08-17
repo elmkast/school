@@ -34,7 +34,7 @@ See the [product feature and development specification](docs/MEDLIBRARY_PRODUCT_
 - Grouped curriculum search across lectures, SLOs, slides, and pre-reads with modern filters and sorting
 - Discreet Luna SLO re-parsing with optional instructions and review-before-replace
 - Separate Lectures & SLO and exact Source text search modes
-- Minimal Home view for flagged SLOs with direct lecture access
+- Visual Home archive with lazy-rendered first-page PDF previews, course/week grouping, and direct lecture access
 - Automatically expiring notifications and count-free SLO navigation
 - Persistent pre-read library for PDF or pasted web readings
 - Unread, Read, and Re-review pre-read states with a dedicated re-review queue

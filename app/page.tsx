@@ -15,6 +15,7 @@ import { AppIcon } from "./components/AppIcon";
 import { CurriculumCard } from "./components/CurriculumCard";
 import { CurriculumPageToolbar } from "./components/CurriculumPageToolbar";
 import { CurriculumTree } from "./components/CurriculumTree";
+import { LectureGallery } from "./components/LectureGallery";
 import { PdfCanvasViewer } from "./components/PdfCanvasViewer";
 import { Sidebar, SidebarItem, SidebarSection } from "./components/SidebarSystem";
 
@@ -398,9 +399,6 @@ export default function Home() {
       || (questionWeekFilter === "unassigned" ? lecture.week === null : lecture.week === Number(questionWeekFilter)));
     return [...filtered].sort((a, b) => questionSort === "name-asc" ? compareText(a.title, b.title) : compareLectureWeeks(a.week, b.week) || compareText(a.title, b.title));
   }, [questionLectures, allQuestionsSelected, activeQuestionYear, activeQuestionCourse, activeQuestionLecturer, questionWeekFilter, questionSort]);
-  const homeFlaggedLectures = useMemo(() => lectures
-    .filter((lecture) => lecture.flaggedSLOs.some((index) => Boolean(lecture.slos[index])))
-    .sort((a, b) => compareLectureWeeks(a.week, b.week) || compareText(a.title, b.title)), [lectures]);
   const visiblePreReads = useMemo(() => preReads
     .filter((preRead) => preReadFilter === "all" || preRead.status === preReadFilter)
     .sort((a, b) => compareText(b.createdAt, a.createdAt) || compareText(a.title, b.title)), [preReads, preReadFilter]);
@@ -1640,7 +1638,7 @@ export default function Home() {
   }
 
   return (
-    <main className="shell">
+    <main className={`shell ${view === "home" ? "home-shell" : ""}`}>
       <div className="live-sidebar-shell">
         <Sidebar className="live-primary-sidebar" ariaLabel="Primary navigation" footer={<small>FCOM.lib</small>}>
           <SidebarItem label="Home" active={view === "home"} onClick={() => setView("home")} />
@@ -1675,13 +1673,7 @@ export default function Home() {
 
         {queueVisible && uploadQueue.length > 0 && <aside className="upload-queue" aria-label="Lecture import queue"><header><div><small>IMPORT QUEUE</small><strong>{finishedUploads} of {uploadQueue.length} finished</strong></div><button aria-label="Hide import queue" onClick={() => setQueueVisible(false)}><AppIcon name="x"/></button></header><div className="queue-jobs">{uploadQueue.map((job) => <div className={`queue-job ${job.status}`} key={job.id}><span className="queue-indicator"/><div><strong>{job.name}</strong><small>{uploadStatusLabel[job.status]}{activeUpload?.id === job.id ? " · Current" : nextUpload?.id === job.id ? " · Next" : ""}</small><small className="queue-destination">{job.destinationLabel}</small>{job.error && <em>{job.error}</em>}</div></div>)}</div><footer><button disabled={uploading} onClick={() => setUploadQueue((current) => current.filter((job) => job.status !== "done" && job.status !== "error"))}>Clear finished</button></footer></aside>}
 
-        {view === "home" && <section className="full-page home-page">
-          <div className="page-toolbar"><div className="eyebrow">FLAGGED SLOS</div></div>
-          {homeFlaggedLectures.length > 0 ? <div className="home-flagged-list">{homeFlaggedLectures.map((lecture) => {
-            const flaggedEntries = lecture.flaggedSLOs.map((index) => ({ index, slo: lecture.slos[index] })).filter((entry) => Boolean(entry.slo));
-            return <article className="home-flagged-card" key={lecture.id}><header><div><small>{lecture.course} · {lecturerFolderLabel(lecture.lecturer)}</small><h2>{lecture.title}</h2></div><button onClick={() => { setActiveId(lecture.id); openLectureBrief(lecture.id); }}>Open lecture</button></header><ol>{flaggedEntries.map(({ index, slo }) => <li key={`${index}-${slo}`}><span>{index + 1}</span><p>{slo}</p></li>)}</ol></article>;
-          })}</div> : <div className="home-empty"><strong>No flagged SLOs</strong><span>Flag an objective from the SLO page and it will appear here.</span></div>}
-        </section>}
+        {view === "home" && <section className="full-page home-page visual-home-page"><LectureGallery lectures={lectures} onOpen={(lecture) => { setActiveId(lecture.id); openLectureBrief(lecture.id); }}/></section>}
 
         {view === "library" && <div className={`content-grid ${displayActive ? "" : "single-column"}`}>
           <section className="library-panel">

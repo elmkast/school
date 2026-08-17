@@ -137,7 +137,7 @@ Status definitions:
 | Feature | Status | Current behavior | Production requirement |
 |---|---|---|---|
 | Lecture collection | Implemented | Displays imported lecture records and representative seed lectures | Cloud-synchronized account library |
-| Home flagged-SLO view | Implemented | Opens as the default landing page and groups flagged objectives by lecture with direct Open lecture actions | Add optional recent-study and due-review modules only if they prove useful |
+| Visual lecture home | Implemented | Opens as the default landing page and presents the actual first page of each lecture PDF in an archival contact sheet grouped by course and curriculum week; hovering reveals the title and selecting a preview opens the lecture | Consider an optional compact/list switch only if the visual archive proves insufficient for a specific workflow |
 | Academic-year folders | Implemented | Years are generated from lecture metadata | Persist and manage year metadata server-side |
 | Course folders | Implemented | Courses are generated within each academic year | Course rename/merge and ordering controls |
 | Lecturer subfolders | Implemented | Each course expands into lecturer-specific filters using the lecturers already in the library | Lecturer merge and canonical-name controls |
