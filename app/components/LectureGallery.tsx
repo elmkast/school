@@ -1,12 +1,18 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { compareLectureWeeks, compareText, lectureWeekLabel } from "../../lib/curriculum";
+import { compareText, lectureWeekLabel } from "../../lib/curriculum";
 import { getLectureFile, type Lecture } from "../../lib/lecture-store";
 import { pdfjs } from "../../lib/pdf-runtime";
 
 type GalleryGroup = { key: string; academicYear: string; course: string; week: number | null; lectures: Lecture[] };
 const lectureThumbnailCache = new Map<string, string>();
+
+function compareNewestWeeks(left: number | null, right: number | null) {
+  if (left === null) return right === null ? 0 : 1;
+  if (right === null) return -1;
+  return right - left;
+}
 
 function LectureFirstPage({ lecture }: { lecture: Lecture }) {
   const hostRef = useRef<HTMLDivElement>(null);
@@ -75,7 +81,7 @@ export function LectureGallery({ lectures, onOpen }: { lectures: Lecture[]; onOp
       else grouped.set(key, { key, academicYear: lecture.academicYear, course: lecture.course, week: lecture.week, lectures: [lecture] });
     });
     return Array.from(grouped.values())
-      .sort((a, b) => compareText(b.academicYear, a.academicYear) || compareText(a.course, b.course) || compareLectureWeeks(a.week, b.week))
+      .sort((a, b) => compareText(b.academicYear, a.academicYear) || compareText(a.course, b.course) || compareNewestWeeks(a.week, b.week))
       .map((group) => ({ ...group, lectures: [...group.lectures].sort((a, b) => compareText(a.title, b.title)) }));
   }, [lectures]);
 
