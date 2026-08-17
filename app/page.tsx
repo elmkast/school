@@ -239,6 +239,7 @@ export default function Home() {
   const [chatDraft, setChatDraft] = useState("");
   const [chatLoading, setChatLoading] = useState(false);
   const [noteDraft, setNoteDraft] = useState("");
+  const [viewerContext, setViewerContext] = useState<"marks" | "note" | "slos" | null>(null);
   const [penEnabled, setPenEnabled] = useState(false);
   const [editingMetadataId, setEditingMetadataId] = useState("");
   const [courseDraft, setCourseDraft] = useState("");
@@ -533,6 +534,7 @@ export default function Home() {
     setViewerFileLectureId("");
     setChatMessages([]);
     setChatDraft("");
+    setViewerContext(null);
     setPenEnabled(false);
     setNoteDraft(lecture?.notes?.[targetPage] ?? "");
     setViewerLectureId(id);
@@ -2076,12 +2078,20 @@ export default function Home() {
             <header className="viewer-toolbar"><div><small>{viewerLecture.title}</small><strong>PDF page {selectedPage} of {viewerLecture.pages}</strong></div><div className="viewer-controls"><button disabled={selectedPage <= 1} onClick={() => selectViewerPage(selectedPage - 1)}>Previous</button><label className="page-jump"><span>Page</span><input aria-label="PDF page number" type="number" min="1" max={viewerLecture.pages} value={selectedPage} onChange={(event) => selectViewerPage(Number(event.target.value) || 1)} /></label><button disabled={selectedPage >= viewerLecture.pages} onClick={() => selectViewerPage(selectedPage + 1)}>Next</button><button onClick={() => openQuestionBuilder(viewerLecture.id, selectedPage)}>Draft question</button><button className={`pen-toggle ${penEnabled ? "active" : ""}`} aria-pressed={penEnabled} onClick={() => { setPenEnabled((current) => !current); window.getSelection()?.removeAllRanges(); }}>{penEnabled ? "Pen on" : "Pen"}</button>{viewerPageInk.length > 0 && <button onClick={() => saveCurrentInk(viewerPageInk.slice(0, -1))}>Undo ink</button>}<button className={`mark-slide ${currentSlideIsMarked ? "marked" : ""}`} aria-pressed={currentSlideIsMarked} onClick={toggleCurrentSlideMark}><AppIcon name="bookmark"/>{currentSlideIsMarked ? "Marked" : "Mark slide"}</button></div></header>
             {viewerFile && viewerFileLectureId === viewerLecture.id ? <PdfCanvasViewer key={viewerLecture.id} file={viewerFile} lectureId={viewerLecture.id} page={selectedPage} inkStrokes={viewerPageInk} penEnabled={penEnabled} onInkChange={saveCurrentInk} /> : <div className="slide-fallback"><span className="result-page">{selectedSlide.page}</span><h2>{selectedSlide.heading}</h2><p>{selectedSlide.text || "Loading the selected lecture…"}</p><small>Uploaded PDFs are stored locally and displayed page-for-page here.</small></div>}
           </section>
-          <aside className="ai-panel"><div className="ai-panel-head"><h2>Ask about this slide</h2><button className="ai-close" aria-label="Close lecture viewer" onClick={() => setViewerLectureId("")}><AppIcon name="x"/></button></div>
-            {chatMessages.length > 0 || chatLoading ? <div className="luna-chat" aria-live="polite">{chatMessages.map((message) => <article className={`chat-message ${message.role}`} key={message.id}><small>{message.role === "assistant" ? "Luna" : `You · page ${message.page}`}</small><p>{message.text}</p></article>)}{chatLoading && <article className="chat-message assistant pending"><small>Luna</small><p>Thinking…</p></article>}</div> : null}
-            <form className={`luna-chat-form ${chatMessages.length === 0 ? "fresh" : ""}`} onSubmit={sendChatMessage}><textarea aria-label="Ask Luna about this slide" value={chatDraft} onChange={(event) => setChatDraft(event.target.value)} rows={2} maxLength={2000} /><button type="submit" disabled={chatLoading || !chatDraft.trim()}>Send</button></form>
-            <div className="marked-pages"><div className="section-head"><h3>Marked slides</h3><span>{viewerMarkedSlides.length}</span></div>{viewerMarkedSlides.length > 0 ? <div className="marked-page-list">{viewerMarkedSlides.map((page) => <button className={page === selectedPage ? "active" : ""} key={page} onClick={() => selectViewerPage(page)}><AppIcon name="bookmark"/>Slide {page}</button>)}</div> : <p>No slides marked yet. Mark any slide to return to it here.</p>}</div>
-            <div className="note-box"><div className="section-head"><h3>My note for slide {selectedPage}</h3><button onClick={saveCurrentNote}>Save</button></div><textarea aria-label={`My note for slide ${selectedPage}`} value={noteDraft} onChange={(event) => setNoteDraft(event.target.value)} /></div>
-            {viewerFlaggedSLOs.length > 0 && <div className="viewer-flagged-slos"><div className="section-head"><h3>Flagged SLOs from this lecture</h3></div><ul>{viewerFlaggedSLOs.map((slo, index) => <li key={`${index}-${slo}`}>{slo}</li>)}</ul></div>}
+          <aside className="ai-panel ai-conversation-panel"><div className="ai-panel-head"><div><h2>Luna</h2><small>PDF page {selectedPage}</small></div><button className="ai-close" aria-label="Close lecture viewer" onClick={() => setViewerLectureId("")}><AppIcon name="x"/></button></div>
+            <div className="viewer-conversation">
+              <div className={`luna-chat conversation-feed ${chatMessages.length === 0 && !chatLoading ? "empty" : ""}`} aria-live="polite">{chatMessages.length === 0 && !chatLoading ? <div className="conversation-welcome"><strong>What would you like to understand?</strong></div> : <>{chatMessages.map((message) => <article className={`chat-message ${message.role}`} key={message.id}><small>{message.role === "assistant" ? "Luna" : `You · page ${message.page}`}</small><p>{message.text}</p></article>)}{chatLoading && <article className="chat-message assistant pending"><small>Luna</small><p>Thinking…</p></article>}</>}</div>
+              <div className="conversation-dock">
+                {viewerContext && <section className="viewer-context-drawer">
+                  <header><strong>{viewerContext === "marks" ? "Marked slides" : viewerContext === "note" ? `My note for slide ${selectedPage}` : "Flagged SLOs"}</strong><button aria-label="Close study context" onClick={() => setViewerContext(null)}>×</button></header>
+                  {viewerContext === "marks" && (viewerMarkedSlides.length > 0 ? <div className="marked-page-list">{viewerMarkedSlides.map((page) => <button className={page === selectedPage ? "active" : ""} key={page} onClick={() => selectViewerPage(page)}>Slide {page}</button>)}</div> : <p>No slides marked yet.</p>)}
+                  {viewerContext === "note" && <div className="conversation-note"><textarea aria-label={`My note for slide ${selectedPage}`} value={noteDraft} onChange={(event) => setNoteDraft(event.target.value)} /><button onClick={saveCurrentNote}>Save note</button></div>}
+                  {viewerContext === "slos" && (viewerFlaggedSLOs.length > 0 ? <ul>{viewerFlaggedSLOs.map((slo, index) => <li key={`${index}-${slo}`}>{slo}</li>)}</ul> : <p>No flagged SLOs from this lecture.</p>)}
+                </section>}
+                <form className="luna-chat-form conversation-composer" onSubmit={sendChatMessage}><textarea aria-label="Ask Luna about this slide" value={chatDraft} onChange={(event) => setChatDraft(event.target.value)} rows={2} maxLength={2000} /><button type="submit" aria-label="Send message" disabled={chatLoading || !chatDraft.trim()}>↑</button></form>
+                <nav className="conversation-context-links" aria-label="Study context"><button className={viewerContext === "marks" ? "active" : ""} onClick={() => setViewerContext((current) => current === "marks" ? null : "marks")}><b>{viewerMarkedSlides.length}</b> Marked</button><button className={viewerContext === "slos" ? "active" : ""} onClick={() => setViewerContext((current) => current === "slos" ? null : "slos")}><b>{viewerFlaggedSLOs.length}</b> Flagged SLO{viewerFlaggedSLOs.length === 1 ? "" : "s"}</button><button className={viewerContext === "note" ? "active" : ""} onClick={() => setViewerContext((current) => current === "note" ? null : "note")}><b>{viewerLecture.notes?.[selectedPage]?.trim() ? "✓" : "—"}</b> Note</button></nav>
+              </div>
+            </div>
           </aside>
         </div>}
       </section>

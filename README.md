@@ -21,7 +21,7 @@ See the [product feature and development specification](docs/MEDLIBRARY_PRODUCT_
 - Editable course designations and direct lecture access from the SLO dashboard
 - Sequential multi-PDF imports with current, next, completed, and failed queue states
 - Persistent per-slide bookmarks with quick return links in the lecture reader
-- Flagged lecture SLOs displayed inside the study companion below slide notes
+- Conversation-first study companion with compact drawers for slide notes, marked slides, and flagged lecture SLOs
 - Matching collapsible academic-year/course trees for Lectures and SLO filtering
 - Lecturer subfolders within every course, mirrored in Lectures and SLOs
 - Persistent course, lecturer, and manually assigned curriculum-week editing

@@ -12,7 +12,7 @@ function ConversationFirst() {
   return <div className="ai-prototype-canvas conversation-first">
     <header><div><span>Luna</span><small>PDF page 20</small></div><button aria-label="Close prototype">×</button></header>
     <div className="ai-conversation-feed">
-      <div className="ai-prototype-welcome"><span>L</span><strong>What would you like to understand?</strong><p>Ask beyond the slide, compare mechanisms, or work through a clinical connection.</p></div>
+      <div className="ai-prototype-welcome"><strong>What would you like to understand?</strong></div>
       <article className="prototype-message user">Why does the liver use glucokinase instead of hexokinase after a meal?</article>
       <article className="prototype-message assistant"><small>LUNA</small><p>{assistantAnswer}</p><button>Explain the Km difference</button></article>
     </div>

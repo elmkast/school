@@ -202,12 +202,12 @@ Status definitions:
 | Reader close placement | Implemented | The close control is in the upper-right of the study companion, matching the overall modal edge | Preserve predictable placement across responsive layouts |
 | Synchronized page number | Implemented | App controls the visible PDF page and uses the same page for AI | Preserve page on close/reopen |
 | Previous/next navigation | Implemented | Buttons, direct page input, and arrow-key navigation | Touch gestures and thumbnail rail |
-| Slide-specific notes | Implemented | Saves a note per PDF page on the current device | Autosave, cloud sync, edit history, and export |
+| Slide-specific notes | Implemented | Saves a note per PDF page through the Note drawer beneath the conversation composer | Autosave, cloud sync, edit history, and export |
 | Freehand PDF markup | Implemented | A Pen mode draws persistent red freehand strokes on the current PDF page; Undo ink removes the most recent stroke | Add colors, stroke widths, eraser, stylus pressure, and cloud sync |
-| Marked slides | Implemented | Mark/unmark slides and jump back from a persistent list | Cross-device sync and optional marked-slide review mode |
+| Marked slides | Implemented | Mark/unmark slides and jump back through a compact contextual drawer beneath the conversation composer | Cross-device sync and optional marked-slide review mode |
 | Selectable PDF text | Implemented | Adds a PDF.js text layer so words and phrases can be highlighted directly on the rendered page | Preserve selection accuracy across rotations, OCR, and unusual embedded fonts |
-| Luna slide chat | Implemented | Answers the student's question directly from medical knowledge, using the current and nearby slides silently as optional context rather than automatically framing every answer around the slide; messages are intentionally not persisted | Streaming output, optional source citations on request, retry, and feedback controls |
-| Flagged SLOs in reader | Implemented | Displays the current lecture's flagged objectives below per-slide notes | Link objectives to exact supporting slides |
+| Luna slide chat | Implemented | Uses a conversation-first, ChatGPT-inspired companion with a single-question empty state and anchored composer; answers directly from medical knowledge, using nearby slides silently as optional context, and does not persist messages | Streaming output, optional source citations on request, retry, and feedback controls |
+| Flagged SLOs in reader | Implemented | Makes the current lecture's flagged objectives available through a compact contextual drawer beneath the conversation composer | Link objectives to exact supporting slides |
 | Go deeper on slide | Planned | — | Choose explanation depth and focus without leaving the reader |
 | Slide-linked flashcards | Candidate | — | Generate editable cards with source-page citations |
 | Study session mode | Candidate | — | Review marked slides, notes, and SLOs as a queue |
