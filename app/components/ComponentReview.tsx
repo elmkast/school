@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { CurriculumCard } from "./CurriculumCard";
 import { CurriculumPageToolbar } from "./CurriculumPageToolbar";
+import { LectureGalleryPrototype } from "./LectureGalleryPrototype";
 import { SidebarPrototypes } from "./SidebarPrototypes";
 
 const fixtureSlos = [
@@ -20,7 +21,7 @@ export function ComponentReview() {
   return <main className="component-review-page">
     <header className="component-review-header">
       <div><small>INTERNAL UX REFERENCE</small><h1>Curriculum components</h1><p>Canonical states for reviewing shared FCOM.lib interface patterns.</p></div>
-      <a href="/">Return to FCOM.lib</a>
+      <button type="button" onClick={() => { window.location.href = "/"; }}>Return to FCOM.lib</button>
     </header>
 
     <section className="component-review-section">
@@ -30,6 +31,11 @@ export function ComponentReview() {
     <section className="component-review-section component-review-section-wide">
       <div className="component-review-label"><span>SIDEBAR SYSTEM PROPOSALS</span><p>Three interactive navigation models using the same hierarchy and selection state. Click rows and expand folders to compare behavior.</p></div>
       <SidebarPrototypes />
+    </section>
+
+    <section className="component-review-section component-review-section-wide">
+      <div className="component-review-label"><span>VISUAL LIBRARY PROPOSAL</span><p>An alternate contact-sheet view using the first page of each PDF as the primary navigation object. Hover or focus a preview to reveal its lecture title.</p></div>
+      <LectureGalleryPrototype />
     </section>
 
     <section className="component-review-section">
