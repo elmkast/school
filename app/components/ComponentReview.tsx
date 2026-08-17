@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { AiPanelPrototypes } from "./AiPanelPrototypes";
 import { CurriculumCard } from "./CurriculumCard";
 import { CurriculumPageToolbar } from "./CurriculumPageToolbar";
 import { LectureGalleryPrototype } from "./LectureGalleryPrototype";
@@ -36,6 +37,11 @@ export function ComponentReview() {
     <section className="component-review-section component-review-section-wide">
       <div className="component-review-label"><span>VISUAL LIBRARY PROPOSAL</span><p>An alternate contact-sheet view using the first page of each PDF as the primary navigation object. Hover or focus a preview to reveal its lecture title.</p></div>
       <LectureGalleryPrototype />
+    </section>
+
+    <section className="component-review-section component-review-section-wide">
+      <div className="component-review-label"><span>AI STUDY COMPANION PROPOSALS</span><p>Three interactive hierarchy studies for the lecture viewer. Each preserves Luna chat, slide notes, marked slides, and flagged SLO context.</p></div>
+      <AiPanelPrototypes />
     </section>
 
     <section className="component-review-section">
