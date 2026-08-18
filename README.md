@@ -13,7 +13,7 @@ See the [product feature and development specification](docs/MEDLIBRARY_PRODUCT_
 - Device-local caching with a one-time, non-destructive migration into the cloud library
 - Netlify-ready production build
 - In-session Luna chat grounded in the current slide and nearby lecture context
-- Local PDF viewer and per-slide notes
+- Local PDF viewer and automatically saved per-slide notes
 - Persistent freehand pen markup on individual PDF pages with per-stroke undo
 - Selectable PDF text for copying lecture content
 - Academic-year folders, favorites, and removable lecture records
@@ -21,7 +21,7 @@ See the [product feature and development specification](docs/MEDLIBRARY_PRODUCT_
 - Editable course designations and direct lecture access from the SLO dashboard
 - Sequential multi-PDF imports with current, next, completed, and failed queue states
 - Persistent per-slide bookmarks with quick return links in the lecture reader
-- Conversation-first study companion with compact drawers for slide notes, marked slides, and flagged lecture SLOs
+- Conversation-first study companion with Enter-to-send chat, compact study drawers, and independently collapsible PDF and Luna panes
 - Matching collapsible academic-year/course trees for Lectures and SLO filtering
 - Lecturer subfolders within every course, mirrored in Lectures and SLOs
 - Persistent course, lecturer, and manually assigned curriculum-week editing

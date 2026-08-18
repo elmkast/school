@@ -12,7 +12,6 @@ function ConversationFirst() {
   return <div className="ai-prototype-canvas conversation-first">
     <header><div><span>Luna</span><small>PDF page 20</small></div><button aria-label="Close prototype">×</button></header>
     <div className="ai-conversation-feed">
-      <div className="ai-prototype-welcome"><strong>What would you like to understand?</strong></div>
       <article className="prototype-message user">Why does the liver use glucokinase instead of hexokinase after a meal?</article>
       <article className="prototype-message assistant"><small>LUNA</small><p>{assistantAnswer}</p><button>Explain the Km difference</button></article>
     </div>
@@ -26,7 +25,7 @@ function TabbedWorkspace() {
     <header><div><small>STUDY COMPANION</small><strong>Slide 20</strong></div><button aria-label="Close prototype">×</button></header>
     <nav aria-label="Prototype study tools">{(["chat", "notes", "marks"] as const).map((item) => <button className={tab === item ? "active" : ""} key={item} onClick={() => setTab(item)}>{item === "chat" ? "Ask Luna" : item === "notes" ? "My note" : "Marked slides"}{item === "marks" && <b>2</b>}</button>)}</nav>
     {tab === "chat" && <div className="tabbed-prototype-body"><div className="tabbed-prompt"><small>LUNA · PAGE 20</small><p>{assistantAnswer}</p></div><div className="prototype-suggestions"><button>Compare the enzymes</button><button>Quiz me on this pathway</button><button>Connect this to diabetes</button></div></div>}
-    {tab === "notes" && <div className="tabbed-prototype-body note"><label>MY NOTE FOR SLIDE 20<textarea defaultValue="Glucokinase acts as a hepatic glucose sensor because of its high Km."/></label><button>Save note</button></div>}
+    {tab === "notes" && <div className="tabbed-prototype-body note"><label>MY NOTE FOR SLIDE 20<textarea defaultValue="Glucokinase acts as a hepatic glucose sensor because of its high Km."/></label><small>Saved automatically</small></div>}
     {tab === "marks" && <div className="tabbed-prototype-body marks"><button><span>14</span><strong>Rate-limiting steps of glycolysis</strong></button><button className="active"><span>20</span><strong>Hexokinase versus glucokinase</strong></button></div>}
     <footer><Composer/></footer>
   </div>;

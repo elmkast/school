@@ -239,7 +239,10 @@ export default function Home() {
   const [chatDraft, setChatDraft] = useState("");
   const [chatLoading, setChatLoading] = useState(false);
   const [noteDraft, setNoteDraft] = useState("");
+  const [noteSaveStatus, setNoteSaveStatus] = useState<"saved" | "saving">("saved");
   const [viewerContext, setViewerContext] = useState<"marks" | "note" | "slos" | null>(null);
+  const [pdfPaneHidden, setPdfPaneHidden] = useState(false);
+  const [lunaPaneHidden, setLunaPaneHidden] = useState(false);
   const [penEnabled, setPenEnabled] = useState(false);
   const [editingMetadataId, setEditingMetadataId] = useState("");
   const [courseDraft, setCourseDraft] = useState("");
@@ -420,19 +423,42 @@ export default function Home() {
 
   useEffect(() => {
     if (!viewerLecture) return;
+    const persistCurrentNote = () => {
+      if ((viewerLecture.notes?.[selectedPage] ?? "") === noteDraft) return;
+      const updated = { ...viewerLecture, notes: { ...(viewerLecture.notes ?? {}), [selectedPage]: noteDraft } };
+      setLectures((current) => current.map((lecture) => lecture.id === updated.id ? updated : lecture));
+      void saveLecture(updated).then(() => setNoteSaveStatus("saved")).catch((error) => setNotice(`Note autosave failed: ${readableError(error)}`));
+    };
     const handleKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setViewerLectureId("");
+      if (event.key === "Escape") { persistCurrentNote(); setViewerLectureId(""); }
       const target = event.target;
       if (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement || (target instanceof HTMLElement && target.isContentEditable)) return;
       if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
+        persistCurrentNote();
         const page = event.key === "ArrowLeft" ? Math.max(1, selectedPage - 1) : Math.min(viewerLecture.pages, selectedPage + 1);
         setSelectedPage(page);
         setNoteDraft(viewerLecture.notes?.[page] ?? "");
+        setNoteSaveStatus("saved");
       }
     };
     window.addEventListener("keydown", handleKey);
     return () => window.removeEventListener("keydown", handleKey);
-  }, [viewerLecture, selectedPage]);
+  }, [viewerLecture, selectedPage, noteDraft]);
+
+  useEffect(() => {
+    if (!viewerLecture) return;
+    if ((viewerLecture.notes?.[selectedPage] ?? "") === noteDraft) { setNoteSaveStatus("saved"); return; }
+    setNoteSaveStatus("saving");
+    const lecture = viewerLecture;
+    const page = selectedPage;
+    const note = noteDraft;
+    const timer = window.setTimeout(() => {
+      const updated = { ...lecture, notes: { ...(lecture.notes ?? {}), [page]: note } };
+      setLectures((current) => current.map((item) => item.id === updated.id ? updated : item));
+      void saveLecture(updated).then(() => setNoteSaveStatus("saved")).catch((error) => setNotice(`Note autosave failed: ${readableError(error)}`));
+    }, 650);
+    return () => window.clearTimeout(timer);
+  }, [noteDraft, selectedPage, viewerLecture]);
   useEffect(() => {
     if (!sloExportOpen) return;
     const handleKey = (event: KeyboardEvent) => { if (event.key === "Escape") setSloExportOpen(false); };
@@ -535,16 +561,21 @@ export default function Home() {
     setChatMessages([]);
     setChatDraft("");
     setViewerContext(null);
+    setPdfPaneHidden(false);
+    setLunaPaneHidden(false);
     setPenEnabled(false);
     setNoteDraft(lecture?.notes?.[targetPage] ?? "");
+    setNoteSaveStatus("saved");
     setViewerLectureId(id);
   }
 
   function selectViewerPage(page: number) {
     if (!viewerLecture) return;
+    void saveCurrentNote(false);
     const targetPage = Math.min(viewerLecture.pages, Math.max(1, page));
     setSelectedPage(targetPage);
     setNoteDraft(viewerLecture.notes?.[targetPage] ?? "");
+    setNoteSaveStatus("saved");
   }
 
   function openSearchResult(result: SearchResult) {
@@ -1308,12 +1339,19 @@ export default function Home() {
     finally { setChatLoading(false); }
   }
 
-  async function saveCurrentNote() {
+  async function saveCurrentNote(showNotice = false) {
     if (!viewerLecture) return;
+    if ((viewerLecture.notes?.[selectedPage] ?? "") === noteDraft) { setNoteSaveStatus("saved"); return; }
+    setNoteSaveStatus("saving");
     const updated = { ...viewerLecture, notes: { ...(viewerLecture.notes ?? {}), [selectedPage]: noteDraft } };
     setLectures((current) => current.map((lecture) => lecture.id === updated.id ? updated : lecture));
-    await saveLecture(updated);
-    setNotice(cloudSession ? "Note saved and synced." : "Note saved on this device.");
+    try {
+      await saveLecture(updated);
+      setNoteSaveStatus("saved");
+      if (showNotice) setNotice(cloudSession ? "Note saved and synced." : "Note saved on this device.");
+    } catch (error) {
+      setNotice(`Note autosave failed: ${readableError(error)}`);
+    }
   }
 
   async function saveCurrentInk(strokes: InkStroke[]) {
@@ -2073,26 +2111,31 @@ export default function Home() {
           </section>
         </div>}
 
-        {viewerLecture && <div className="viewer-modal" role="dialog" aria-modal="true" aria-label="Lecture slide viewer">
-          <section className="viewer-stage">
+        {viewerLecture && <div className={`viewer-modal ${pdfPaneHidden ? "pdf-pane-hidden" : ""} ${lunaPaneHidden ? "luna-pane-hidden" : ""} ${pdfPaneHidden && lunaPaneHidden ? "both-panes-hidden" : ""}`} role="dialog" aria-modal="true" aria-label="Lecture slide viewer">
+          <section className={`viewer-stage ${pdfPaneHidden ? "pane-hidden" : ""}`}>
             <header className="viewer-toolbar"><div><small>{viewerLecture.title}</small><strong>PDF page {selectedPage} of {viewerLecture.pages}</strong></div><div className="viewer-controls"><button disabled={selectedPage <= 1} onClick={() => selectViewerPage(selectedPage - 1)}>Previous</button><label className="page-jump"><span>Page</span><input aria-label="PDF page number" type="number" min="1" max={viewerLecture.pages} value={selectedPage} onChange={(event) => selectViewerPage(Number(event.target.value) || 1)} /></label><button disabled={selectedPage >= viewerLecture.pages} onClick={() => selectViewerPage(selectedPage + 1)}>Next</button><button onClick={() => openQuestionBuilder(viewerLecture.id, selectedPage)}>Draft question</button><button className={`pen-toggle ${penEnabled ? "active" : ""}`} aria-pressed={penEnabled} onClick={() => { setPenEnabled((current) => !current); window.getSelection()?.removeAllRanges(); }}>{penEnabled ? "Pen on" : "Pen"}</button>{viewerPageInk.length > 0 && <button onClick={() => saveCurrentInk(viewerPageInk.slice(0, -1))}>Undo ink</button>}<button className={`mark-slide ${currentSlideIsMarked ? "marked" : ""}`} aria-pressed={currentSlideIsMarked} onClick={toggleCurrentSlideMark}><AppIcon name="bookmark"/>{currentSlideIsMarked ? "Marked" : "Mark slide"}</button></div></header>
             {viewerFile && viewerFileLectureId === viewerLecture.id ? <PdfCanvasViewer key={viewerLecture.id} file={viewerFile} lectureId={viewerLecture.id} page={selectedPage} inkStrokes={viewerPageInk} penEnabled={penEnabled} onInkChange={saveCurrentInk} /> : <div className="slide-fallback"><span className="result-page">{selectedSlide.page}</span><h2>{selectedSlide.heading}</h2><p>{selectedSlide.text || "Loading the selected lecture…"}</p><small>Uploaded PDFs are stored locally and displayed page-for-page here.</small></div>}
+            <button className="viewer-pane-hide pdf" type="button" aria-label="Hide PDF viewer" title="Hide PDF viewer" onClick={() => setPdfPaneHidden(true)}>‹</button>
           </section>
-          <aside className="ai-panel ai-conversation-panel"><div className="ai-panel-head"><div><h2>Luna</h2><small>PDF page {selectedPage}</small></div><button className="ai-close" aria-label="Close lecture viewer" onClick={() => setViewerLectureId("")}><AppIcon name="x"/></button></div>
+          <aside className={`ai-panel ai-conversation-panel ${lunaPaneHidden ? "pane-hidden" : ""}`}><div className="ai-panel-head"><div><h2>Luna</h2><small>PDF page {selectedPage}</small></div><button className="ai-close" aria-label="Close lecture viewer" onClick={() => { void saveCurrentNote(false); setViewerLectureId(""); }}><AppIcon name="x"/></button></div>
             <div className="viewer-conversation">
-              <div className={`luna-chat conversation-feed ${chatMessages.length === 0 && !chatLoading ? "empty" : ""}`} aria-live="polite">{chatMessages.length === 0 && !chatLoading ? <div className="conversation-welcome"><strong>What would you like to understand?</strong></div> : <>{chatMessages.map((message) => <article className={`chat-message ${message.role}`} key={message.id}><small>{message.role === "assistant" ? "Luna" : `You · page ${message.page}`}</small><p>{message.text}</p></article>)}{chatLoading && <article className="chat-message assistant pending"><small>Luna</small><p>Thinking…</p></article>}</>}</div>
+              <div className="luna-chat conversation-feed" aria-live="polite">{chatMessages.map((message) => <article className={`chat-message ${message.role}`} key={message.id}><small>{message.role === "assistant" ? "Luna" : `You · page ${message.page}`}</small><p>{message.text}</p></article>)}{chatLoading && <article className="chat-message assistant pending"><small>Luna</small><p>Thinking…</p></article>}</div>
               <div className="conversation-dock">
                 {viewerContext && <section className="viewer-context-drawer">
                   <header><strong>{viewerContext === "marks" ? "Marked slides" : viewerContext === "note" ? `My note for slide ${selectedPage}` : "Flagged SLOs"}</strong><button aria-label="Close study context" onClick={() => setViewerContext(null)}>×</button></header>
                   {viewerContext === "marks" && (viewerMarkedSlides.length > 0 ? <div className="marked-page-list">{viewerMarkedSlides.map((page) => <button className={page === selectedPage ? "active" : ""} key={page} onClick={() => selectViewerPage(page)}>Slide {page}</button>)}</div> : <p>No slides marked yet.</p>)}
-                  {viewerContext === "note" && <div className="conversation-note"><textarea aria-label={`My note for slide ${selectedPage}`} value={noteDraft} onChange={(event) => setNoteDraft(event.target.value)} /><button onClick={saveCurrentNote}>Save note</button></div>}
+                  {viewerContext === "note" && <div className="conversation-note"><textarea aria-label={`My note for slide ${selectedPage}`} value={noteDraft} onChange={(event) => setNoteDraft(event.target.value)} /><small aria-live="polite">{noteSaveStatus === "saving" ? "Saving…" : "Saved automatically"}</small></div>}
                   {viewerContext === "slos" && (viewerFlaggedSLOs.length > 0 ? <ul>{viewerFlaggedSLOs.map((slo, index) => <li key={`${index}-${slo}`}>{slo}</li>)}</ul> : <p>No flagged SLOs from this lecture.</p>)}
                 </section>}
-                <form className="luna-chat-form conversation-composer" onSubmit={sendChatMessage}><textarea aria-label="Ask Luna about this slide" value={chatDraft} onChange={(event) => setChatDraft(event.target.value)} rows={2} maxLength={2000} /><button type="submit" aria-label="Send message" disabled={chatLoading || !chatDraft.trim()}>↑</button></form>
+                <form className="luna-chat-form conversation-composer" onSubmit={sendChatMessage}><textarea aria-label="Ask Luna about this slide" value={chatDraft} onChange={(event) => setChatDraft(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); event.currentTarget.form?.requestSubmit(); } }} rows={2} maxLength={2000} /><button type="submit" aria-label="Send message" disabled={chatLoading || !chatDraft.trim()}>↑</button></form>
                 <nav className="conversation-context-links" aria-label="Study context"><button className={viewerContext === "marks" ? "active" : ""} onClick={() => setViewerContext((current) => current === "marks" ? null : "marks")}><b>{viewerMarkedSlides.length}</b> Marked</button><button className={viewerContext === "slos" ? "active" : ""} onClick={() => setViewerContext((current) => current === "slos" ? null : "slos")}><b>{viewerFlaggedSLOs.length}</b> Flagged SLO{viewerFlaggedSLOs.length === 1 ? "" : "s"}</button><button className={viewerContext === "note" ? "active" : ""} onClick={() => setViewerContext((current) => current === "note" ? null : "note")}><b>{viewerLecture.notes?.[selectedPage]?.trim() ? "✓" : "—"}</b> Note</button></nav>
               </div>
             </div>
+            <button className="viewer-pane-hide luna" type="button" aria-label="Hide Luna" title="Hide Luna" onClick={() => setLunaPaneHidden(true)}>›</button>
           </aside>
+          {pdfPaneHidden && <button className="viewer-pane-restore pdf" type="button" onClick={() => setPdfPaneHidden(false)}>Show PDF</button>}
+          {lunaPaneHidden && <button className="viewer-pane-restore luna" type="button" onClick={() => setLunaPaneHidden(false)}>Show Luna</button>}
+          {pdfPaneHidden && lunaPaneHidden && <button className="viewer-pane-restore close" type="button" onClick={() => { void saveCurrentNote(false); setViewerLectureId(""); }}>Close lecture</button>}
         </div>}
       </section>
     </main>
