@@ -433,9 +433,12 @@ export default function Home() {
       if (event.key === "Escape") { persistCurrentNote(); setViewerLectureId(""); }
       const target = event.target;
       if (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement || (target instanceof HTMLElement && target.isContentEditable)) return;
-      if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
+      const key = event.key.toLowerCase();
+      const previousPage = event.key === "ArrowLeft" || key === "q";
+      const nextPage = event.key === "ArrowRight" || key === "e";
+      if (!event.ctrlKey && !event.metaKey && !event.altKey && (previousPage || nextPage)) {
         persistCurrentNote();
-        const page = event.key === "ArrowLeft" ? Math.max(1, selectedPage - 1) : Math.min(viewerLecture.pages, selectedPage + 1);
+        const page = previousPage ? Math.max(1, selectedPage - 1) : Math.min(viewerLecture.pages, selectedPage + 1);
         setSelectedPage(page);
         setNoteDraft(viewerLecture.notes?.[page] ?? "");
         setNoteSaveStatus("saved");

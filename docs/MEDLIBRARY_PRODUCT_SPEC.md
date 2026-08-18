@@ -201,7 +201,7 @@ Status definitions:
 | Embedded PDF reader | Implemented | Renders the stored lecture PDF page by page | CDN delivery, range requests, and loading optimization |
 | Reader close placement | Implemented | The close control is in the upper-right of the study companion, matching the overall modal edge | Preserve predictable placement across responsive layouts |
 | Synchronized page number | Implemented | App controls the visible PDF page and uses the same page for AI | Preserve page on close/reopen |
-| Previous/next navigation | Implemented | Buttons, direct page input, and arrow-key navigation | Touch gestures and thumbnail rail |
+| Previous/next navigation | Implemented | Buttons, direct page input, arrow keys, and Q/E keyboard shortcuts outside editable fields | Touch gestures and thumbnail rail |
 | Slide-specific notes | Implemented | Places an autosaving note editor directly beneath each visible PDF page; it expands with the PDF workspace when Luna is hidden, while page changes and reader closure flush pending edits | Edit history and export |
 | Freehand PDF markup | Implemented | A Pen mode draws persistent red freehand strokes on the current PDF page; Undo ink removes the most recent stroke | Add colors, stroke widths, eraser, stylus pressure, and cloud sync |
 | Marked slides | Implemented | Mark/unmark slides and jump back through a compact contextual drawer beneath the conversation composer | Cross-device sync and optional marked-slide review mode |
