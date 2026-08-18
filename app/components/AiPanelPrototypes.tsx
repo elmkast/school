@@ -15,7 +15,7 @@ function ConversationFirst() {
       <article className="prototype-message user">Why does the liver use glucokinase instead of hexokinase after a meal?</article>
       <article className="prototype-message assistant"><small>LUNA</small><p>{assistantAnswer}</p><button>Explain the Km difference</button></article>
     </div>
-    <div className="ai-conversation-bottom"><Composer/><div className="ai-context-links"><button><b>2</b> Marked</button><button><b>1</b> Flagged SLO</button><button><b>✓</b> Note saved</button></div></div>
+    <div className="ai-conversation-bottom"><Composer/><div className="ai-context-links"><button><b>2</b> Marked</button><button><b>1</b> Flagged SLO</button></div></div>
   </div>;
 }
 
