@@ -8,7 +8,8 @@ import { cloudConfigured, supabase, type CloudSession } from "../lib/supabase-cl
 import { clearUploadDiagnosticCheckpoint, downloadDiagnostics, recordDiagnostic, setUploadDiagnosticCheckpoint } from "../lib/diagnostics";
 import { ALL_LECTURERS, LECTURE_WEEK_OPTIONS, NEW_LECTURER, compareLectureWeeks, compareText, lectureWeekLabel, lecturerFolderLabel } from "../lib/curriculum";
 import { searchMatchScore, searchResultCollectionTitle, searchResultWeek, type SearchKind, type SearchResult } from "../lib/curriculum-search";
-import { shuffleItems, type QuestionDraft, type QuizMode, type QuizQuestion, type QuizResponse } from "../lib/questions";
+import { clearSavedQuiz, loadSavedQuiz, saveQuizForLater, shuffleItems, type QuestionDraft, type QuizMode, type QuizQuestion, type QuizResponse, type SavedQuizSession } from "../lib/questions";
+import { retrieveLibraryContext } from "../lib/library-retrieval";
 import { pdfjs } from "../lib/pdf-runtime";
 import { seedLectures } from "../lib/seed-lectures";
 import { AppIcon } from "./components/AppIcon";
@@ -17,6 +18,7 @@ import { CurriculumPageToolbar } from "./components/CurriculumPageToolbar";
 import { CurriculumTree } from "./components/CurriculumTree";
 import { LectureGallery } from "./components/LectureGallery";
 import { PdfCanvasViewer } from "./components/PdfCanvasViewer";
+import { filterQuestionRows, QuestionBankTable, type QuestionTableColumn, type QuestionTableFilters, type QuestionTableRow } from "./components/QuestionBankTable";
 import { Sidebar, SidebarItem, SidebarSection } from "./components/SidebarSystem";
 
 function readableError(error: unknown) {
@@ -124,7 +126,8 @@ type QuestionChatTarget = {
 };
 
 type QuestionChatMessage = { id: string; role: "user" | "assistant"; text: string };
-type QuestionEditProposal = { prompt: string; options: string[]; answer: string; explanation: string };
+type QuestionEditProposal = { prompt: string; topic: string; options: string[]; answer: string; explanation: string };
+type QuestionSourcePreview = { ownerKind: "lecture" | "preread"; ownerId: string; title: string; sourceKind: QuestionSourceKind; page?: number; pages?: number[]; sloIndexes?: number[] };
 
 function aiEndpoint(action: "analyze" | "chat" | "reparse-slos" | "generate-questions" | "question-chat") {
   return `/.netlify/functions/${action}`;
@@ -173,14 +176,9 @@ export default function Home() {
   const [sloWeekFilter, setSloWeekFilter] = useState("all");
   const [sloSort, setSloSort] = useState<"week-asc" | "name-asc">("week-asc");
   const [expandedSloLectureIds, setExpandedSloLectureIds] = useState<Set<string>>(new Set());
-  const [expandedQuestionYear, setExpandedQuestionYear] = useState<string | null>(currentAcademicYear());
-  const [expandedQuestionCourse, setExpandedQuestionCourse] = useState<string | null>(null);
-  const [activeQuestionYear, setActiveQuestionYear] = useState(currentAcademicYear());
-  const [activeQuestionCourse, setActiveQuestionCourse] = useState("All courses");
-  const [activeQuestionLecturer, setActiveQuestionLecturer] = useState(ALL_LECTURERS);
-  const [allQuestionsSelected, setAllQuestionsSelected] = useState(true);
-  const [questionWeekFilter, setQuestionWeekFilter] = useState("all");
-  const [questionSort, setQuestionSort] = useState<"week-asc" | "name-asc">("week-asc");
+  const [questionTableFilters, setQuestionTableFilters] = useState<QuestionTableFilters>({});
+  const [hiddenQuestionColumns, setHiddenQuestionColumns] = useState<Set<QuestionTableColumn>>(new Set());
+  const [selectedQuestionKeys, setSelectedQuestionKeys] = useState<Set<string>>(new Set());
   const [questionBuilderOpen, setQuestionBuilderOpen] = useState(false);
   const [questionSourceMode, setQuestionSourceMode] = useState<QuestionSourceMode>("lecture");
   const [selectedQuestionLectureIds, setSelectedQuestionLectureIds] = useState<Set<string>>(new Set());
@@ -192,16 +190,12 @@ export default function Home() {
   const [questionInstruction, setQuestionInstruction] = useState("");
   const [questionDrafts, setQuestionDrafts] = useState<QuestionDraft[] | null>(null);
   const [questionGenerating, setQuestionGenerating] = useState(false);
-  const [revealedQuestionIds, setRevealedQuestionIds] = useState<Set<string>>(new Set());
-  const [expandedQuestionBankLectureIds, setExpandedQuestionBankLectureIds] = useState<Set<string>>(new Set());
-  const [expandedQuestionBankPreReadIds, setExpandedQuestionBankPreReadIds] = useState<Set<string>>(new Set());
   const [questionChatTarget, setQuestionChatTarget] = useState<QuestionChatTarget | null>(null);
   const [questionChatMessages, setQuestionChatMessages] = useState<QuestionChatMessage[]>([]);
   const [questionChatDraft, setQuestionChatDraft] = useState("");
   const [questionChatLoading, setQuestionChatLoading] = useState(false);
   const [questionEditProposal, setQuestionEditProposal] = useState<QuestionEditProposal | null>(null);
   const [quizBuilderOpen, setQuizBuilderOpen] = useState(false);
-  const [selectedQuizLectureIds, setSelectedQuizLectureIds] = useState<Set<string>>(new Set());
   const [quizHistoryFilters, setQuizHistoryFilters] = useState<Set<QuizHistoryFilter>>(new Set());
   const [quizWeekFilter, setQuizWeekFilter] = useState("all");
   const [quizQuestionCount, setQuizQuestionCount] = useState(10);
@@ -210,6 +204,10 @@ export default function Home() {
   const [quizIndex, setQuizIndex] = useState(0);
   const [quizMode, setQuizMode] = useState<QuizMode>("taking");
   const [quizReviewIndex, setQuizReviewIndex] = useState(0);
+  const [savedQuizSession, setSavedQuizSession] = useState<SavedQuizSession | null>(null);
+  const [quizTopicDraft, setQuizTopicDraft] = useState("");
+  const [questionSourcePreview, setQuestionSourcePreview] = useState<QuestionSourcePreview | null>(null);
+  const [questionSourceFile, setQuestionSourceFile] = useState<Blob | null>(null);
   const [sloExportOpen, setSloExportOpen] = useState(false);
   const [selectedExportLectureIds, setSelectedExportLectureIds] = useState<Set<string>>(new Set());
   const [sloExportFormat, setSloExportFormat] = useState<"pdf" | "excel">("pdf");
@@ -349,6 +347,22 @@ export default function Home() {
     };
   }, []);
 
+  useEffect(() => { setSavedQuizSession(loadSavedQuiz()); }, []);
+
+  useEffect(() => {
+    const current = quizQuestions[quizIndex];
+    setQuizTopicDraft(current?.question.topic ?? "");
+  }, [quizIndex, quizQuestions]);
+
+  useEffect(() => {
+    let cancelled = false;
+    setQuestionSourceFile(null);
+    if (!questionSourcePreview?.page) return;
+    const load = questionSourcePreview.ownerKind === "lecture" ? getLectureFile(questionSourcePreview.ownerId) : getPreReadFile(questionSourcePreview.ownerId);
+    void load.then((file) => { if (!cancelled) setQuestionSourceFile(file); }).catch(() => undefined);
+    return () => { cancelled = true; };
+  }, [questionSourcePreview]);
+
   const viewerLecture = lectures.find((lecture) => lecture.id === viewerLectureId);
   const sloReparseLecture = lectures.find((lecture) => lecture.id === sloReparseLectureId);
   const selectedSlide = viewerLecture?.slides.find((slide) => slide.page === selectedPage) ?? { page: selectedPage, heading: `Slide ${selectedPage}`, text: "" };
@@ -388,21 +402,33 @@ export default function Home() {
   }, [lectures, flaggedSLOsSelected, sloWeekFilter, sloSort, allSLOsSelected, activeSloYear, activeSloCourse, activeSloLecturer]);
   const questionLectures = useMemo(() => lectures.filter((lecture) => lecture.questions.length > 0), [lectures]);
   const questionPreReads = useMemo(() => preReads.filter((preRead) => preRead.questions.length > 0).sort((a, b) => compareText(a.title, b.title)), [preReads]);
-  const questionAcademicYears = useMemo(() => Array.from(new Set(questionLectures.map((lecture) => lecture.academicYear))).sort().reverse(), [questionLectures]);
-  const questionCoursesByYear = useMemo(() => questionAcademicYears.reduce<Record<string, string[]>>((folders, year) => {
-    folders[year] = Array.from(new Set(questionLectures.filter((lecture) => lecture.academicYear === year).map((lecture) => lecture.course))).sort(compareText);
-    return folders;
-  }, {}), [questionAcademicYears, questionLectures]);
-  const visibleQuestionLectures = useMemo(() => {
-    const folderLectures = allQuestionsSelected
-      ? questionLectures
-      : questionLectures.filter((lecture) => lecture.academicYear === activeQuestionYear
-        && (activeQuestionCourse === "All courses" || lecture.course === activeQuestionCourse)
-        && (activeQuestionLecturer === ALL_LECTURERS || lecture.lecturer === activeQuestionLecturer));
-    const filtered = folderLectures.filter((lecture) => questionWeekFilter === "all"
-      || (questionWeekFilter === "unassigned" ? lecture.week === null : lecture.week === Number(questionWeekFilter)));
-    return [...filtered].sort((a, b) => questionSort === "name-asc" ? compareText(a.title, b.title) : compareLectureWeeks(a.week, b.week) || compareText(a.title, b.title));
-  }, [questionLectures, allQuestionsSelected, activeQuestionYear, activeQuestionCourse, activeQuestionLecturer, questionWeekFilter, questionSort]);
+  const questionRows = useMemo<QuestionTableRow[]>(() => [
+    ...questionLectures.flatMap((lecture) => lecture.questions.map((question) => ({
+      key: `lecture::${lecture.id}::${question.id}`,
+      ownerKind: "lecture" as const,
+      ownerId: lecture.id,
+      question,
+      course: lecture.course,
+      week: lecture.week,
+      instructor: lecturerFolderLabel(lecture.lecturer),
+      lecture: lecture.title,
+      sourceType: question.sourceKind === "slo" ? "SLO-based" : question.sourceKind === "slide" ? "Slide-based" : "Lecture-based",
+      sourceLabel: question.sourceKind === "slo" && question.sourceSloIndexes.length ? `SLO ${question.sourceSloIndexes.map((index) => index + 1).join(", ")}` : question.sourcePages.length ? `PDF page ${question.sourcePages.join(", ")}` : "Full lecture",
+    }))),
+    ...questionPreReads.flatMap((preRead) => preRead.questions.map((question) => ({
+      key: `preread::${preRead.id}::${question.id}`,
+      ownerKind: "preread" as const,
+      ownerId: preRead.id,
+      question,
+      course: preRead.course,
+      week: null,
+      instructor: preRead.author,
+      lecture: preRead.title,
+      sourceType: "Pre-read",
+      sourceLabel: question.sourcePages.length ? `Page ${question.sourcePages.join(", ")}` : "Saved reading",
+    }))),
+  ].sort((a, b) => compareLectureWeeks(a.week, b.week) || compareText(a.lecture, b.lecture) || compareText(a.question.prompt, b.question.prompt)), [questionLectures, questionPreReads]);
+  const visibleQuestionRows = useMemo(() => filterQuestionRows(questionRows, questionTableFilters), [questionRows, questionTableFilters]);
   const visiblePreReads = useMemo(() => preReads
     .filter((preRead) => preReadFilter === "all" || preRead.status === preReadFilter)
     .sort((a, b) => compareText(b.createdAt, a.createdAt) || compareText(a.title, b.title)), [preReads, preReadFilter]);
@@ -780,7 +806,8 @@ export default function Home() {
         const options = Array.isArray(record.options)
           ? record.options.filter((option): option is string => typeof option === "string" && Boolean(option.trim())).map((option) => option.trim()).slice(0, 6)
           : [];
-        if (record.type !== "multiple-choice" || options.length !== 4 || !options.includes(answer)) return [];
+        if (record.type !== "multiple-choice" || options.length < 4 || options.length > 6 || !options.includes(answer)) return [];
+        const topic = typeof record.topic === "string" ? record.topic.trim().split(/\s+/)[0].replace(/[^\p{L}\p{N}-]/gu, "").slice(0, 40) : "";
         const allowedPages = new Set(source.slides.map((slide) => slide.page));
         const pages = Array.isArray(record.sourcePages)
           ? Array.from(new Set(record.sourcePages.filter((page): page is number => typeof page === "number" && allowedPages.has(page)))).sort((a, b) => a - b)
@@ -799,6 +826,7 @@ export default function Home() {
           options,
           answer,
           explanation: typeof record.explanation === "string" ? record.explanation.trim() : "",
+          topic: topic || "Unassigned",
           sourcePages: sourceKind === "slo" ? [] : pages.length ? pages : fallbackPage ? [fallbackPage] : [],
           approved: true,
         }];
@@ -830,6 +858,7 @@ export default function Home() {
         options: draft.options.map((option) => option.trim()).filter(Boolean),
         answer: draft.answer.trim(),
         explanation: draft.explanation.trim(),
+        topic: draft.topic.trim().split(/\s+/)[0] || "Unassigned",
         sourceKind: draft.sourceKind,
         sourceLectureId: lecture.id,
         sourcePreReadId: undefined,
@@ -854,6 +883,7 @@ export default function Home() {
         options: draft.options.map((option) => option.trim()).filter(Boolean),
         answer: draft.answer.trim(),
         explanation: draft.explanation.trim(),
+        topic: draft.topic.trim().split(/\s+/)[0] || "Unassigned",
         sourceKind: "preread",
         sourceLectureId: undefined,
         sourcePreReadId: preRead.id,
@@ -874,7 +904,6 @@ export default function Home() {
     await Promise.all([...changed.map((lecture) => saveLecture(lecture)), ...changedPreReads.map((preRead) => savePreRead(preRead))]);
     setQuestionBuilderOpen(false);
     setQuestionDrafts(null);
-    setAllQuestionsSelected(true);
     setView("questions");
     setNotice(`Added ${approved.length} approved question${approved.length === 1 ? "" : "s"} to the question bank.`);
   }
@@ -895,6 +924,35 @@ export default function Home() {
     setPreReads((current) => current.map((item) => item.id === preReadId ? updated : item));
     await savePreRead(updated);
     setNotice("Question removed.");
+  }
+
+  function openQuestionRowSource(row: QuestionTableRow) {
+    setQuestionSourcePreview({
+      ownerKind: row.ownerKind,
+      ownerId: row.ownerId,
+      title: row.lecture,
+      sourceKind: row.question.sourceKind,
+      page: row.question.sourcePages[0],
+      pages: row.question.sourcePages,
+      sloIndexes: row.question.sourceSloIndexes,
+    });
+  }
+
+  function openQuizQuestionSource(question: QuizQuestion) {
+    setQuestionSourcePreview({
+      ownerKind: question.ownerKind,
+      ownerId: question.ownerId,
+      title: question.lectureTitle,
+      sourceKind: question.question.sourceKind,
+      page: question.question.sourcePages[0],
+      pages: question.question.sourcePages,
+      sloIndexes: question.question.sourceSloIndexes,
+    });
+  }
+
+  function removeQuestionRow(row: QuestionTableRow) {
+    if (row.ownerKind === "lecture") void removeQuestion(row.ownerId, row.question.id);
+    else void removePreReadQuestion(row.ownerId, row.question.id);
   }
 
   function questionFromChatTarget(target: QuestionChatTarget | null) {
@@ -929,13 +987,16 @@ export default function Home() {
     setQuestionEditProposal(null);
     setQuestionChatLoading(true);
     try {
+      const ownerLecture = questionChatTarget?.ownerKind === "lecture" ? lectures.find((lecture) => lecture.id === questionChatTarget.ownerId) : undefined;
+      const libraryContext = retrieveLibraryContext(message, lectures, preReads, ownerLecture ? { course: ownerLecture.course, week: ownerLecture.week, lecturer: ownerLecture.lecturer } : undefined);
       const response = await fetch(aiEndpoint("question-chat"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           message,
-          question: { prompt: question.prompt, options: question.options, answer: question.answer, explanation: question.explanation },
+          question: { prompt: question.prompt, topic: question.topic, options: question.options, answer: question.answer, explanation: question.explanation },
           history: questionChatMessages.slice(-8).map(({ role, text }) => ({ role, text })),
+          libraryContext,
         }),
       });
       const data = await response.json() as { message?: string; hasProposal?: boolean; proposal?: unknown; error?: string; detail?: string };
@@ -947,10 +1008,11 @@ export default function Home() {
         const options = Array.isArray(proposal.options) ? proposal.options.filter((option): option is string => typeof option === "string" && Boolean(option.trim())).map((option) => option.trim()) : [];
         const answer = typeof proposal.answer === "string" ? proposal.answer.trim() : "";
         const prompt = typeof proposal.prompt === "string" ? proposal.prompt.trim() : "";
-        if (prompt && options.length === 4 && answer && options.includes(answer)) {
-          setQuestionEditProposal({ prompt, options, answer, explanation: typeof proposal.explanation === "string" ? proposal.explanation.trim() : "" });
+        const topic = typeof proposal.topic === "string" ? proposal.topic.trim().split(/\s+/)[0].replace(/[^\p{L}\p{N}-]/gu, "") : "";
+        if (prompt && options.length >= 4 && options.length <= 6 && answer && options.includes(answer)) {
+          setQuestionEditProposal({ prompt, topic: topic || question.topic || "Unassigned", options, answer, explanation: typeof proposal.explanation === "string" ? proposal.explanation.trim() : "" });
         } else {
-          setQuestionChatMessages((current) => [...current, { id: crypto.randomUUID(), role: "assistant", text: "I could not produce a valid four-choice revision. Ask me to try the edit again with more specific direction." }]);
+          setQuestionChatMessages((current) => [...current, { id: crypto.randomUUID(), role: "assistant", text: "I could not produce a valid multiple-choice revision. Ask me to try the edit again with more specific direction." }]);
         }
       }
     } catch (error) {
@@ -995,18 +1057,19 @@ export default function Home() {
     const currentQuestion = quizQuestions[quizIndex];
     if (!currentQuestion || !window.confirm("Delete this question from the Question Bank? This cannot be undone.")) return;
 
-    const lecture = lectures.find((item) => item.id === currentQuestion.lectureId);
-    if (!lecture) {
-      setNotice("This question could not be matched to its lecture.");
-      return;
+    if (currentQuestion.ownerKind === "lecture") {
+      const lecture = lectures.find((item) => item.id === currentQuestion.ownerId);
+      if (!lecture) return;
+      const updated = { ...lecture, questions: lecture.questions.filter((question) => question.id !== currentQuestion.question.id) };
+      await saveLecture(updated);
+      setLectures((current) => current.map((item) => item.id === lecture.id ? updated : item));
+    } else {
+      const preRead = preReads.find((item) => item.id === currentQuestion.ownerId);
+      if (!preRead) return;
+      const updated = { ...preRead, questions: preRead.questions.filter((question) => question.id !== currentQuestion.question.id) };
+      await savePreRead(updated);
+      setPreReads((current) => current.map((item) => item.id === preRead.id ? updated : item));
     }
-
-    const updated = {
-      ...lecture,
-      questions: lecture.questions.filter((question) => question.id !== currentQuestion.question.id),
-    };
-    await saveLecture(updated);
-    setLectures((current) => current.map((item) => item.id === lecture.id ? updated : item));
 
     const remainingQuestions = quizQuestions.filter((question) => question.key !== currentQuestion.key);
     setQuizResponses((responses) => {
@@ -1028,20 +1091,8 @@ export default function Home() {
   }
 
   function openQuizBuilder() {
-    const defaults = visibleQuestionLectures.length ? visibleQuestionLectures : questionLectures;
-    const ids = new Set(defaults.map((lecture) => lecture.id));
-    const available = defaults.reduce((total, lecture) => total + lecture.questions.length, 0);
-    setSelectedQuizLectureIds(ids);
-    setQuizQuestionCount(Math.min(10, Math.max(1, available)));
+    setQuizQuestionCount(Math.min(10, Math.max(1, selectedQuestionKeys.size || visibleQuestionRows.length)));
     setQuizBuilderOpen(true);
-  }
-
-  function setQuizLectureSelection(ids: string[], selected: boolean) {
-    setSelectedQuizLectureIds((current) => {
-      const next = new Set(current);
-      ids.forEach((id) => selected ? next.add(id) : next.delete(id));
-      return next;
-    });
   }
 
   function toggleQuizHistoryFilter(filter: QuizHistoryFilter) {
@@ -1052,19 +1103,19 @@ export default function Home() {
     });
   }
 
-  function questionMatchesQuizFilters(lecture: Lecture, question: QuestionRecord) {
+  function questionMatchesQuizFilters(row: QuestionTableRow) {
     const weekMatches = quizWeekFilter === "all"
-      || (quizWeekFilter === "unassigned" ? lecture.week === null : lecture.week === Number(quizWeekFilter));
+      || (quizWeekFilter === "unassigned" ? row.week === null : row.week === Number(quizWeekFilter));
     if (!weekMatches) return false;
     if (!quizHistoryFilters.size) return true;
-    return (quizHistoryFilters.has("unseen") && question.timesSeen === 0)
-      || (quizHistoryFilters.has("incorrect") && question.timesIncorrect > 0);
+    return (quizHistoryFilters.has("unseen") && row.question.timesSeen === 0)
+      || (quizHistoryFilters.has("incorrect") && row.question.timesIncorrect > 0);
   }
 
   async function recordQuizPerformance(quizQuestion: QuizQuestion, correct: boolean) {
-    const lecture = lectures.find((item) => item.id === quizQuestion.lectureId);
-    const storedQuestion = lecture?.questions.find((question) => question.id === quizQuestion.question.id);
-    if (!lecture || !storedQuestion) return;
+    const owner = quizQuestion.ownerKind === "lecture" ? lectures.find((item) => item.id === quizQuestion.ownerId) : preReads.find((item) => item.id === quizQuestion.ownerId);
+    const storedQuestion = owner?.questions.find((question) => question.id === quizQuestion.question.id);
+    if (!owner || !storedQuestion) return;
     const updatedQuestion: QuestionRecord = {
       ...storedQuestion,
       timesSeen: storedQuestion.timesSeen + 1,
@@ -1072,26 +1123,30 @@ export default function Home() {
       timesIncorrect: storedQuestion.timesIncorrect + (correct ? 0 : 1),
       lastAnsweredAt: new Date().toISOString(),
     };
-    const updatedLecture = { ...lecture, questions: lecture.questions.map((question) => question.id === storedQuestion.id ? updatedQuestion : question) };
-    setLectures((current) => current.map((item) => item.id === lecture.id ? updatedLecture : item));
+    const updatedOwner = { ...owner, questions: owner.questions.map((question) => question.id === storedQuestion.id ? updatedQuestion : question) };
+    if (quizQuestion.ownerKind === "lecture") {
+      setLectures((current) => current.map((item) => item.id === owner.id ? updatedOwner as Lecture : item));
+      await saveLecture(updatedOwner as Lecture);
+    } else {
+      setPreReads((current) => current.map((item) => item.id === owner.id ? updatedOwner as PreRead : item));
+      await savePreRead(updatedOwner as PreRead);
+    }
     setQuizQuestions((current) => current.map((item) => item.key === quizQuestion.key ? { ...item, question: { ...item.question, ...updatedQuestion, options: item.question.options } } : item));
-    await saveLecture(updatedLecture);
   }
 
   function startQuiz() {
-    const pool = questionLectures
-      .filter((lecture) => selectedQuizLectureIds.has(lecture.id))
-      .flatMap((lecture) => lecture.questions.filter((question) => questionMatchesQuizFilters(lecture, question)).map<QuizQuestion>((question) => ({
-        key: `${lecture.id}::${question.id}`,
-        lectureId: lecture.id,
-        lectureTitle: lecture.title,
-        lecturer: lecture.lecturer,
-        question: {
-          ...question,
-          options: question.type === "multiple-choice" ? shuffleItems(question.options) : [],
-        },
-      })));
-    if (!pool.length) { setNotice("Select at least one lecture with approved questions."); return; }
+    const pool = eligibleSelectedQuizRows.map<QuizQuestion>((row) => ({
+      key: row.key,
+      ownerKind: row.ownerKind,
+      ownerId: row.ownerId,
+      lectureId: row.ownerId,
+      lectureTitle: row.lecture,
+      lecturer: row.instructor,
+      course: row.course,
+      week: row.week,
+      question: { ...row.question, options: row.question.type === "multiple-choice" ? shuffleItems(row.question.options) : [] },
+    }));
+    if (!pool.length) { setNotice("Select at least one matching question."); return; }
     const count = Math.min(100, Math.max(1, quizQuestionCount), pool.length);
     setQuizQuestions(shuffleItems(pool).slice(0, count));
     setQuizResponses({});
@@ -1099,6 +1154,8 @@ export default function Home() {
     setQuizMode("taking");
     setQuizReviewIndex(0);
     setQuizBuilderOpen(false);
+    clearSavedQuiz();
+    setSavedQuizSession(null);
   }
 
   function setCurrentQuizResponse(response: string) {
@@ -1106,7 +1163,7 @@ export default function Home() {
     if (!current || quizResponses[current.key]?.submitted) return;
     setQuizResponses((responses) => ({
       ...responses,
-      [current.key]: { response, submitted: false, correct: null },
+      [current.key]: { response, submitted: false, correct: null, ruledOut: responses[current.key]?.ruledOut ?? [] },
     }));
   }
 
@@ -1118,7 +1175,7 @@ export default function Home() {
     const correct = current.question.type === "multiple-choice" ? response === current.question.answer : null;
     setQuizResponses((responses) => ({
       ...responses,
-      [current.key]: { response, submitted: true, correct },
+      [current.key]: { response, submitted: true, correct, ruledOut: responses[current.key]?.ruledOut ?? [] },
     }));
     if (correct !== null) void recordQuizPerformance(current, correct);
   }
@@ -1135,14 +1192,47 @@ export default function Home() {
     const incompleteIndex = quizQuestions.findIndex((question, index) => index > quizIndex && !(quizResponses[question.key]?.submitted && (question.question.type !== "short-answer" || quizResponses[question.key]?.correct !== null)));
     const wrappedIncompleteIndex = incompleteIndex >= 0 ? incompleteIndex : quizQuestions.findIndex((question) => !(quizResponses[question.key]?.submitted && (question.question.type !== "short-answer" || quizResponses[question.key]?.correct !== null)));
     if (wrappedIncompleteIndex >= 0) setQuizIndex(wrappedIncompleteIndex);
-    else setQuizMode("results");
+    else { clearSavedQuiz(); setSavedQuizSession(null); setQuizMode("results"); }
   }
 
   function navigateQuiz(direction: -1 | 1) {
     setQuizIndex((index) => Math.min(quizQuestions.length - 1, Math.max(0, index + direction)));
   }
 
-  function finishQuiz() {
+  function toggleRuledOut(option: string) {
+    const current = quizQuestions[quizIndex];
+    if (!current || quizResponses[current.key]?.submitted) return;
+    setQuizResponses((responses) => {
+      const existing = responses[current.key] ?? { response: "", submitted: false, correct: null, ruledOut: [] };
+      const ruledOut = new Set(existing.ruledOut ?? []);
+      if (ruledOut.has(option)) ruledOut.delete(option); else ruledOut.add(option);
+      return { ...responses, [current.key]: { ...existing, ruledOut: Array.from(ruledOut) } };
+    });
+  }
+
+  async function saveCurrentQuizTopic() {
+    const current = quizQuestions[quizIndex];
+    if (!current) return;
+    const topic = quizTopicDraft.trim().split(/\s+/)[0].replace(/[^\p{L}\p{N}-]/gu, "").slice(0, 40) || "Unassigned";
+    setQuizTopicDraft(topic);
+    const updatedQuestion = { ...current.question, topic };
+    setQuizQuestions((items) => items.map((item) => item.key === current.key ? { ...item, question: updatedQuestion } : item));
+    if (current.ownerKind === "lecture") {
+      const lecture = lectures.find((item) => item.id === current.ownerId);
+      if (!lecture) return;
+      const updated = { ...lecture, questions: lecture.questions.map((question) => question.id === updatedQuestion.id ? updatedQuestion : question) };
+      setLectures((items) => items.map((item) => item.id === updated.id ? updated : item));
+      await saveLecture(updated);
+    } else {
+      const preRead = preReads.find((item) => item.id === current.ownerId);
+      if (!preRead) return;
+      const updated = { ...preRead, questions: preRead.questions.map((question) => question.id === updatedQuestion.id ? updatedQuestion : question) };
+      setPreReads((items) => items.map((item) => item.id === updated.id ? updated : item));
+      await savePreRead(updated);
+    }
+  }
+
+  function resetQuizState() {
     setQuizQuestions([]);
     setQuizResponses({});
     setQuizIndex(0);
@@ -1150,9 +1240,33 @@ export default function Home() {
     setQuizReviewIndex(0);
   }
 
+  function finishQuiz() {
+    clearSavedQuiz();
+    setSavedQuizSession(null);
+    resetQuizState();
+  }
+
+  function saveQuizAndExit() {
+    if (!quizQuestions.length || quizMode !== "taking") return;
+    const saved = saveQuizForLater({ questions: quizQuestions, responses: quizResponses, index: quizIndex });
+    setSavedQuizSession(saved);
+    resetQuizState();
+    setNotice("Quiz saved. Resume it from Question Bank when you are ready.");
+  }
+
+  function resumeSavedQuiz() {
+    const saved = loadSavedQuiz();
+    if (!saved) { setSavedQuizSession(null); return; }
+    setQuizQuestions(saved.questions);
+    setQuizResponses(saved.responses);
+    setQuizIndex(Math.min(saved.index, saved.questions.length - 1));
+    setQuizMode("taking");
+    setQuizReviewIndex(0);
+  }
+
   function exitQuiz() {
     const answered = Object.values(quizResponses).filter((response) => response.submitted).length;
-    if (quizMode === "taking" && answered < quizQuestions.length && !window.confirm("End this quiz? Your current attempt is not saved.")) return;
+    if (quizMode === "taking" && answered < quizQuestions.length && !window.confirm("Discard this quiz? Use Save and exit if you want to finish it later.")) return;
     finishQuiz();
   }
 
@@ -1334,7 +1448,8 @@ export default function Home() {
     setChatLoading(true);
     try {
       const surrounding = viewerLecture.slides.filter((item) => item.page !== selectedSlide.page && Math.abs(item.page - selectedSlide.page) <= 2);
-      const response = await fetch(aiEndpoint("chat"), { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ question, slide: selectedSlide, surrounding, history: chatMessages.slice(-6).map(({ role, text }) => ({ role, text })) }) });
+      const libraryContext = retrieveLibraryContext(question, lectures, preReads, { course: viewerLecture.course, week: viewerLecture.week, lecturer: viewerLecture.lecturer });
+      const response = await fetch(aiEndpoint("chat"), { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ question, slide: selectedSlide, surrounding, history: chatMessages.slice(-6).map(({ role, text }) => ({ role, text })), libraryContext }) });
       const data = await response.json() as { answer?: string; error?: string; detail?: string };
       if (!response.ok || !data.answer) throw new Error(data.error || data.detail || "Luna could not answer.");
       setChatMessages((current) => [...current, { id: crypto.randomUUID(), role: "assistant", text: data.answer ?? "", page: selectedPage }]);
@@ -1547,20 +1662,20 @@ export default function Home() {
 
   const exportableLectures = lectures.filter((lecture) => lecture.slos.length > 0);
   const selectedExportCount = exportableLectures.filter((lecture) => selectedExportLectureIds.has(lecture.id)).length;
-  const totalQuestionCount = questionLectures.reduce((total, lecture) => total + lecture.questions.length, 0);
+  const totalQuestionCount = questionRows.length;
   const selectedQuestionSourceCount = questionSourceMode === "slo"
     ? selectedQuestionSloKeys.size
     : questionSourceMode === "preread"
       ? selectedQuestionPreReadIds.size
       : selectedQuestionLectureIds.size + selectedQuestionSlideKeys.size;
-  const quizEligibleLectures = questionLectures.filter((lecture) => lecture.questions.some((question) => questionMatchesQuizFilters(lecture, question)));
-  const selectedQuizLectureCount = quizEligibleLectures.filter((lecture) => selectedQuizLectureIds.has(lecture.id)).length;
-  const selectedQuizQuestionCount = quizEligibleLectures.filter((lecture) => selectedQuizLectureIds.has(lecture.id)).reduce((total, lecture) => total + lecture.questions.filter((question) => questionMatchesQuizFilters(lecture, question)).length, 0);
-  const quizQuestionLimit = Math.min(100, selectedQuizQuestionCount);
+  const quizEligibleRows = questionRows.filter(questionMatchesQuizFilters);
+  const quizVisibleRows = filterQuestionRows(quizEligibleRows, questionTableFilters);
+  const eligibleSelectedQuizRows = quizVisibleRows.filter((row) => selectedQuestionKeys.has(row.key));
+  const quizQuestionLimit = Math.min(100, eligibleSelectedQuizRows.length);
   const effectiveQuizQuestionCount = quizQuestionLimit > 0 ? Math.min(Math.max(1, quizQuestionCount), quizQuestionLimit) : 0;
   const currentQuizQuestion = quizQuestions[quizIndex];
   const activeQuestionChatQuestion = questionFromChatTarget(questionChatTarget);
-  const currentQuizResponse = currentQuizQuestion ? quizResponses[currentQuizQuestion.key] ?? { response: "", submitted: false, correct: null } : null;
+  const currentQuizResponse = currentQuizQuestion ? quizResponses[currentQuizQuestion.key] ?? { response: "", submitted: false, correct: null, ruledOut: [] } : null;
   const completedQuizQuestionCount = quizQuestions.filter((question) => quizResponses[question.key]?.submitted && (question.question.type !== "short-answer" || quizResponses[question.key]?.correct !== null)).length;
   const allQuizQuestionsComplete = quizQuestions.length > 0 && completedQuizQuestionCount === quizQuestions.length;
   const quizCorrectCount = quizQuestions.filter((question) => quizResponses[question.key]?.correct === true).length;
@@ -1568,6 +1683,11 @@ export default function Home() {
   const quizPercent = quizQuestions.length ? Math.round((quizCorrectCount / quizQuestions.length) * 100) : 0;
   const reviewQuizQuestion = incorrectQuizQuestions[quizReviewIndex];
   const reviewQuizResponse = reviewQuizQuestion ? quizResponses[reviewQuizQuestion.key] : undefined;
+  const questionPreviewLecture = questionSourcePreview?.ownerKind === "lecture" ? lectures.find((lecture) => lecture.id === questionSourcePreview.ownerId) : undefined;
+  const questionPreviewPreRead = questionSourcePreview?.ownerKind === "preread" ? preReads.find((preRead) => preRead.id === questionSourcePreview.ownerId) : undefined;
+  const questionPreviewSlide = questionSourcePreview?.page
+    ? (questionPreviewLecture?.slides.find((slide) => slide.page === questionSourcePreview.page) ?? questionPreviewPreRead?.pages.find((page) => page.page === questionSourcePreview.page))
+    : undefined;
   const activeUpload = uploadQueue.find((job) => ["extracting", "analyzing", "saving"].includes(job.status));
   const nextUpload = uploadQueue.find((job) => job.status === "queued");
   const finishedUploads = uploadQueue.filter((job) => job.status === "done" || job.status === "error").length;
@@ -1597,19 +1717,7 @@ export default function Home() {
     setView("slos");
   }
 
-  function openSloQuestionSource(lecture: Lecture) {
-    setAllSLOsSelected(false);
-    setFlaggedSLOsSelected(false);
-    setActiveSloYear(lecture.academicYear);
-    setActiveSloCourse(lecture.course);
-    setActiveSloLecturer(ALL_LECTURERS);
-    setExpandedSloLectureIds((current) => new Set(current).add(lecture.id));
-    setView("slos");
-  }
-
   function selectQuestionRoot() {
-    setAllQuestionsSelected(true);
-    setActiveQuestionLecturer(ALL_LECTURERS);
     setView("questions");
   }
 
@@ -1681,7 +1789,7 @@ export default function Home() {
   }
 
   return (
-    <main className={`shell ${view === "home" ? "home-shell" : ""}`}>
+    <main className={`shell ${view === "home" ? "home-shell" : ""} ${view === "questions" ? "question-bank-shell" : ""}`}>
       <div className="live-sidebar-shell">
         <Sidebar className="live-primary-sidebar" ariaLabel="Primary navigation" footer={<small>FCOM.lib</small>}>
           <SidebarItem label="Home" active={view === "home"} onClick={() => setView("home")} />
@@ -1693,7 +1801,6 @@ export default function Home() {
         <Sidebar className="live-curriculum-sidebar" ariaLabel="Curriculum folders" footer={<div className="side-bottom">{cloudSession ? <div className="cloud-account"><span><strong>Cloud library</strong><small>{cloudSession.user.email}</small>{migrationRunning && migrationProgress && <small>Syncing {migrationProgress.completed} of {migrationProgress.total}</small>}</span><div className="cloud-account-actions"><button type="button" disabled={migrationRunning} onClick={() => void migrateThisDevice()}>{migrationRunning ? "Syncing…" : "Sync this device"}</button><button type="button" onClick={downloadDiagnostics}>Diagnostics</button><button type="button" disabled={migrationRunning} onClick={() => void signOutCloud()}>Sign out</button></div></div> : <p><span><strong>Device library</strong><br/><small>Cloud connection not configured</small><button className="device-diagnostics" type="button" onClick={downloadDiagnostics}>Diagnostics</button></span></p>}</div>}>
           {view === "library" && <SidebarSection label="LECTURES"><CurriculumTree lectures={lectures} academicYears={academicYears} coursesByYear={coursesByYear} expandedYear={expandedYear} expandedCourse={expandedCourse} selectedYear={activeYear} selectedCourse={activeCourse} selectedLecturer={activeLecturer} allSelected={allLecturesSelected} isCurrentSection onToggleYear={(year) => setExpandedYear((current) => current === year ? null : year)} onToggleCourse={(courseKey) => setExpandedCourse((current) => current === courseKey ? null : courseKey)} onSelectYear={(year) => { setAllLecturesSelected(false); setActiveYear(year); setActiveCourse("All courses"); setActiveLecturer(ALL_LECTURERS); setView("library"); }} onSelectCourse={(year, course) => { setAllLecturesSelected(false); setActiveYear(year); setActiveCourse(course); setActiveLecturer(ALL_LECTURERS); setView("library"); }} onSelectLecturer={(year, course, lecturer) => { setAllLecturesSelected(false); setActiveYear(year); setActiveCourse(course); setActiveLecturer(lecturer); setView("library"); }} /></SidebarSection>}
           {view === "slos" && <SidebarSection label="SESSION LEARNING OBJECTIVES"><CurriculumTree lectures={lectures} academicYears={academicYears} coursesByYear={coursesByYear} expandedYear={expandedSloYear} expandedCourse={expandedSloCourse} selectedYear={activeSloYear} selectedCourse={activeSloCourse} selectedLecturer={activeSloLecturer} allSelected={allSLOsSelected} isCurrentSection showCounts={false} onToggleYear={(year) => setExpandedSloYear((current) => current === year ? null : year)} onToggleCourse={(courseKey) => setExpandedSloCourse((current) => current === courseKey ? null : courseKey)} onSelectYear={(year) => { setAllSLOsSelected(false); setActiveSloYear(year); setActiveSloCourse("All courses"); setActiveSloLecturer(ALL_LECTURERS); setView("slos"); }} onSelectCourse={(year, course) => { setAllSLOsSelected(false); setActiveSloYear(year); setActiveSloCourse(course); setActiveSloLecturer(ALL_LECTURERS); setView("slos"); }} onSelectLecturer={(year, course, lecturer) => { setAllSLOsSelected(false); setActiveSloYear(year); setActiveSloCourse(course); setActiveSloLecturer(lecturer); setView("slos"); }} /></SidebarSection>}
-          {view === "questions" && <SidebarSection label="QUESTION BANK"><CurriculumTree lectures={questionLectures} academicYears={questionAcademicYears} coursesByYear={questionCoursesByYear} expandedYear={expandedQuestionYear} expandedCourse={expandedQuestionCourse} selectedYear={activeQuestionYear} selectedCourse={activeQuestionCourse} selectedLecturer={activeQuestionLecturer} allSelected={allQuestionsSelected} isCurrentSection countItems={(items) => items.reduce((total, lecture) => total + lecture.questions.length, 0)} onToggleYear={(year) => setExpandedQuestionYear((current) => current === year ? null : year)} onToggleCourse={(courseKey) => setExpandedQuestionCourse((current) => current === courseKey ? null : courseKey)} onSelectYear={(year) => { setAllQuestionsSelected(false); setActiveQuestionYear(year); setActiveQuestionCourse("All courses"); setActiveQuestionLecturer(ALL_LECTURERS); setView("questions"); }} onSelectCourse={(year, course) => { setAllQuestionsSelected(false); setActiveQuestionYear(year); setActiveQuestionCourse(course); setActiveQuestionLecturer(ALL_LECTURERS); setView("questions"); }} onSelectLecturer={(year, course, lecturer) => { setAllQuestionsSelected(false); setActiveQuestionYear(year); setActiveQuestionCourse(course); setActiveQuestionLecturer(lecturer); setView("questions"); }} /></SidebarSection>}
           {view === "prereads" && <SidebarSection label="PRE-READS"><SidebarItem label="All pre-reads" active={preReadFilter === "all"} onClick={() => setPreReadFilter("all")} />{(["unread", "read", "rereview"] as const).map((status) => <SidebarItem key={status} label={preReadStatusLabel[status]} active={preReadFilter === status} onClick={() => setPreReadFilter(status)} />)}</SidebarSection>}
           {!["library", "slos", "questions", "prereads"].includes(view) && <div className="live-sidebar-context"><small>FCOM.lib</small><p>Select Lectures, SLOs, Question Bank, or Pre-reads to browse its curriculum folders.</p></div>}
         </Sidebar>
@@ -1806,48 +1913,13 @@ export default function Home() {
         </section>}
 
         {view === "questions" && <section className="full-page question-bank-page">
-          <CurriculumPageToolbar heading={allQuestionsSelected ? <div className="eyebrow">QUESTION BANK</div> : <nav className="slo-breadcrumbs" aria-label="Question bank folders">
-            <button onClick={() => { setActiveQuestionCourse("All courses"); setActiveQuestionLecturer(ALL_LECTURERS); setExpandedQuestionYear(activeQuestionYear); }}>{activeQuestionYear}</button>
-            {activeQuestionCourse !== "All courses" && <><span>·</span><button onClick={() => setActiveQuestionLecturer(ALL_LECTURERS)}>{activeQuestionCourse}</button></>}
-            {activeQuestionLecturer !== ALL_LECTURERS && <><span>·</span><button>{lecturerFolderLabel(activeQuestionLecturer)}</button></>}
-          </nav>} filters={<><label className="sort-control"><span>Filter by</span><select aria-label="Filter question bank by curriculum week" value={questionWeekFilter} onChange={(event) => setQuestionWeekFilter(event.target.value)}><option value="all">All weeks</option>{LECTURE_WEEK_OPTIONS.map((week) => <option key={week} value={week}>Week {week}</option>)}<option value="unassigned">Week unassigned</option></select></label><label className="sort-control"><span>Sort by</span><select value={questionSort} onChange={(event) => setQuestionSort(event.target.value as "week-asc" | "name-asc")}><option value="week-asc">Week · earliest first</option><option value="name-asc">Name · A–Z</option></select></label></>} actions={<div className="question-bank-actions"><button className="take-quiz-trigger" disabled={totalQuestionCount === 0} onClick={openQuizBuilder}>Take quiz</button><button className="question-draft-trigger" onClick={() => openQuestionBuilder()}>Draft with Luna</button></div>} />
-          {visibleQuestionLectures.length > 0 && <div className="lecture-list curriculum-card-list">{visibleQuestionLectures.map((lecture) => {
-            const expanded = expandedQuestionBankLectureIds.has(lecture.id);
-            const toggleExpanded = () => setExpandedQuestionBankLectureIds((current) => { const next = new Set(current); if (expanded) next.delete(lecture.id); else next.add(lecture.id); return next; });
-            return <CurriculumCard key={lecture.id} title={lecture.title} course={lecture.course} lecturer={lecture.lecturer} week={lecture.week} countLabel={`${lecture.questions.length} question${lecture.questions.length === 1 ? "" : "s"}`} primaryActionLabel={expanded ? "Hide questions" : "View questions"} onPrimaryAction={toggleExpanded} expanded={expanded}>
-            <div className="curriculum-card-content question-list">{lecture.questions.map((question, index) => {
-              const revealed = revealedQuestionIds.has(question.id);
-              return <article className="bank-question" key={question.id}>
-                <div className="question-meta"><span>Q{index + 1}</span><small>{question.sourceKind === "slo" ? "SLO-based" : question.sourceKind === "slide" ? "Slide-based" : "Lecture-based"} · {question.type === "multiple-choice" ? "Multiple choice" : "Short answer"}</small><div>{question.sourceSloIndexes.length > 0 && <button onClick={() => openSloQuestionSource(lecture)}>SLO {question.sourceSloIndexes.map((sloIndex) => sloIndex + 1).join(", ")}</button>}{question.sourcePages.map((page) => <button key={page} onClick={() => openLectureBrief(lecture.id, page)}>Page {page}</button>)}</div></div>
-                <h3>{question.prompt}</h3>
-                {question.type === "multiple-choice" && <ol className="question-options" type="A">{question.options.map((option) => <li key={option}>{option}</li>)}</ol>}
-                {revealed && <div className="question-answer"><strong>Answer</strong><p>{question.answer}</p>{question.explanation && <><strong>Explanation</strong><p>{question.explanation}</p></>}</div>}
-                <footer><button onClick={() => openQuestionChat("lecture", lecture.id, lecture.title, question.id)}>Ask Luna</button><button onClick={() => setRevealedQuestionIds((current) => { const next = new Set(current); if (revealed) next.delete(question.id); else next.add(question.id); return next; })}>{revealed ? "Hide answer" : "Show answer"}</button><button className="remove-question" onClick={() => void removeQuestion(lecture.id, question.id)}>Remove</button></footer>
-              </article>;
-            })}</div>
-          </CurriculumCard>;
-          })}</div>}
-          {allQuestionsSelected && questionPreReads.length > 0 && <div className="lecture-list curriculum-card-list question-preread-bank">{questionPreReads.map((preRead) => {
-            const expanded = expandedQuestionBankPreReadIds.has(preRead.id);
-            const toggleExpanded = () => setExpandedQuestionBankPreReadIds((current) => { const next = new Set(current); if (expanded) next.delete(preRead.id); else next.add(preRead.id); return next; });
-            return <CurriculumCard key={preRead.id} title={preRead.title} course={preRead.course} lecturer={preRead.author} week={null} countLabel={`${preRead.questions.length} question${preRead.questions.length === 1 ? "" : "s"}`} primaryActionLabel={expanded ? "Hide questions" : "View questions"} onPrimaryAction={toggleExpanded} expanded={expanded}>
-              <div className="curriculum-card-content question-list">{preRead.questions.map((question, index) => {
-                const revealed = revealedQuestionIds.has(question.id);
-                return <article className="bank-question" key={question.id}>
-                  <div className="question-meta"><span>Q{index + 1}</span><small>Pre-read · Multiple choice</small><div>{question.sourcePages.map((page) => <button key={page} onClick={() => openPreReadSource(preRead, page)}>Page {page}</button>)}</div></div>
-                  <h3>{question.prompt}</h3><ol className="question-options" type="A">{question.options.map((option) => <li key={option}>{option}</li>)}</ol>
-                  {revealed && <div className="question-answer"><strong>Answer</strong><p>{question.answer}</p>{question.explanation && <><strong>Explanation</strong><p>{question.explanation}</p></>}</div>}
-                  <footer><button onClick={() => openQuestionChat("preread", preRead.id, preRead.title, question.id)}>Ask Luna</button><button onClick={() => setRevealedQuestionIds((current) => { const next = new Set(current); if (revealed) next.delete(question.id); else next.add(question.id); return next; })}>{revealed ? "Hide answer" : "Show answer"}</button><button className="remove-question" onClick={() => void removePreReadQuestion(preRead.id, question.id)}>Remove</button></footer>
-                </article>;
-              })}</div>
-            </CurriculumCard>;
-          })}</div>}
-          {visibleQuestionLectures.length === 0 && (!allQuestionsSelected || questionPreReads.length === 0) && <div className="home-empty"><strong>No approved questions here yet</strong><span>Select lectures, SLOs, or pre-reads and ask Luna to draft the first set.</span><button onClick={() => openQuestionBuilder()}>Draft questions</button></div>}
+          <CurriculumPageToolbar heading={<div className="eyebrow">QUESTION BANK</div>} actions={<div className="question-bank-actions">{savedQuizSession && <button className="resume-quiz-trigger" onClick={resumeSavedQuiz}>Resume saved quiz</button>}<button className="take-quiz-trigger" disabled={totalQuestionCount === 0} onClick={openQuizBuilder}>Take quiz</button><button className="question-draft-trigger" onClick={() => openQuestionBuilder()}>Draft with Luna</button></div>} />
+          {questionRows.length > 0 ? <QuestionBankTable rows={questionRows} filters={questionTableFilters} onFiltersChange={setQuestionTableFilters} hiddenColumns={hiddenQuestionColumns} onHiddenColumnsChange={setHiddenQuestionColumns} selectedKeys={selectedQuestionKeys} onSelectedKeysChange={setSelectedQuestionKeys} onOpenSource={openQuestionRowSource} onAskLuna={(row) => openQuestionChat(row.ownerKind, row.ownerId, row.lecture, row.question.id)} onRemove={removeQuestionRow}/> : <div className="home-empty"><strong>No approved questions yet</strong><span>Select lectures, SLOs, or pre-reads and ask Luna to draft the first set.</span><button onClick={() => openQuestionBuilder()}>Draft questions</button></div>}
         </section>}
 
         {quizBuilderOpen && <div className="export-backdrop quiz-builder-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setQuizBuilderOpen(false); }}>
           <section className="quiz-builder-modal" role="dialog" aria-modal="true" aria-labelledby="quiz-builder-title">
-            <header><div><small>BUILD A QUIZ</small><h2 id="quiz-builder-title">Choose quiz material</h2><p>Select any combination of lectures. Questions are mixed together automatically.</p></div><button className="icon-button" aria-label="Close quiz builder" onClick={() => setQuizBuilderOpen(false)}><AppIcon name="x"/></button></header>
+            <header><div><small>BUILD A QUIZ</small><h2 id="quiz-builder-title">Choose quiz material</h2><p>Use the same column filters as Question Bank, then select individual questions or all filtered rows.</p></div><button className="icon-button" aria-label="Close quiz builder" onClick={() => setQuizBuilderOpen(false)}><AppIcon name="x"/></button></header>
             <div className="quiz-builder-options">
               <label><span>Number of questions</span><input type="number" min="1" max={Math.max(1, quizQuestionLimit)} disabled={quizQuestionLimit === 0} value={effectiveQuizQuestionCount || 1} onChange={(event) => setQuizQuestionCount(Math.min(100, Math.max(1, Number(event.target.value) || 1)))}/><small>{quizQuestionLimit} available from this selection · 100 maximum</small></label>
               <div className="quiz-order-setting"><span>Question order</span><strong>Randomized</strong><small>Lectures and questions will be interleaved.</small></div>
@@ -1857,39 +1929,26 @@ export default function Home() {
                 <p>{quizHistoryFilters.size ? `(${[quizHistoryFilters.has("unseen") ? "unseen" : "", quizHistoryFilters.has("incorrect") ? "previously incorrect" : ""].filter(Boolean).join(" OR ")})` : "All question history"} AND {quizWeekFilter === "all" ? "all weeks" : quizWeekFilter === "unassigned" ? "week unassigned" : `Week ${quizWeekFilter}`}</p>
               </div>
             </div>
-            <div className="question-source-toolbar quiz-source-toolbar"><span><strong>{selectedQuizLectureCount}</strong> lecture{selectedQuizLectureCount === 1 ? "" : "s"} · <strong>{selectedQuizQuestionCount}</strong> matching question{selectedQuizQuestionCount === 1 ? "" : "s"}</span><div><button onClick={() => setQuizLectureSelection(quizEligibleLectures.map((lecture) => lecture.id), true)}>Select all matching</button><button onClick={() => setSelectedQuizLectureIds(new Set())}>Clear</button></div></div>
-            <div className="quiz-source-tree">{questionAcademicYears.map((year) => {
-              const yearLectures = quizEligibleLectures.filter((lecture) => lecture.academicYear === year);
-              if (!yearLectures.length) return null;
-              return <section key={year}><h3>{year}</h3>{(questionCoursesByYear[year] ?? []).map((course) => {
-                const courseLectures = yearLectures.filter((lecture) => lecture.course === course);
-                if (!courseLectures.length) return null;
-                const courseIds = courseLectures.map((lecture) => lecture.id);
-                const courseSelected = courseIds.length > 0 && courseIds.every((id) => selectedQuizLectureIds.has(id));
-                const courseQuestionCount = courseLectures.reduce((total, lecture) => total + lecture.questions.filter((question) => questionMatchesQuizFilters(lecture, question)).length, 0);
-                return <div className="quiz-source-course" key={course}>
-                  <label className="quiz-source-course-head"><input type="checkbox" checked={courseSelected} onChange={() => setQuizLectureSelection(courseIds, !courseSelected)}/><strong>{course}</strong><span>{courseQuestionCount} questions</span></label>
-                  <div>{courseLectures.map((lecture) => { const matchingCount = lecture.questions.filter((question) => questionMatchesQuizFilters(lecture, question)).length; return <label className="quiz-source-lecture" key={lecture.id}><input type="checkbox" checked={selectedQuizLectureIds.has(lecture.id)} onChange={(event) => setQuizLectureSelection([lecture.id], event.target.checked)}/><span><strong>{lecture.title}</strong><small>{lecturerFolderLabel(lecture.lecturer)} · {lectureWeekLabel(lecture.week)}</small></span><b>{matchingCount}</b></label>; })}</div>
-                </div>;
-              })}</section>;
-            })}{quizEligibleLectures.length === 0 && <div className="quiz-source-empty"><strong>No questions match these filters</strong><span>Broaden the history selection or choose another curriculum week.</span></div>}</div>
+            <QuestionBankTable compact rows={quizEligibleRows} filters={questionTableFilters} onFiltersChange={setQuestionTableFilters} hiddenColumns={hiddenQuestionColumns} onHiddenColumnsChange={setHiddenQuestionColumns} selectedKeys={selectedQuestionKeys} onSelectedKeysChange={setSelectedQuestionKeys} onOpenSource={openQuestionRowSource}/>
             <footer><button onClick={() => setQuizBuilderOpen(false)}>Cancel</button><button className="quiz-start-button" disabled={effectiveQuizQuestionCount === 0} onClick={startQuiz}>{effectiveQuizQuestionCount > 0 ? `Start ${effectiveQuizQuestionCount} question${effectiveQuizQuestionCount === 1 ? "" : "s"}` : "Start quiz"}</button></footer>
           </section>
         </div>}
 
         {quizQuestions.length > 0 && <section className="quiz-session" role="dialog" aria-modal="true" aria-label="Quiz session">
-          <header className="quiz-session-header"><strong>FCOM.lib <span>Quiz</span></strong><div>{quizMode === "taking" ? `Question ${quizIndex + 1} of ${quizQuestions.length}` : quizMode === "review" ? `Incorrect ${quizReviewIndex + 1} of ${incorrectQuizQuestions.length}` : "Results"}</div><button aria-label="Exit quiz" onClick={exitQuiz}><AppIcon name="x"/></button></header>
+          <header className="quiz-session-header"><strong>FCOM.lib <span>Quiz</span></strong><div>{quizMode === "taking" ? `Question ${quizIndex + 1} of ${quizQuestions.length}` : quizMode === "review" ? `Incorrect ${quizReviewIndex + 1} of ${incorrectQuizQuestions.length}` : "Results"}</div><nav>{quizMode === "taking" && <button className="quiz-save-exit" onClick={saveQuizAndExit}>Save and exit</button>}<button aria-label="Exit quiz" onClick={exitQuiz}><AppIcon name="x"/></button></nav></header>
           {quizMode === "taking" && currentQuizQuestion && currentQuizResponse && <>
             <div className="quiz-progress" role="progressbar" aria-label="Quiz progress" aria-valuemin={1} aria-valuemax={quizQuestions.length} aria-valuenow={quizIndex + 1}><span style={{ width: `${((quizIndex + 1) / quizQuestions.length) * 100}%` }}/></div>
             <div className="quiz-question-screen">
               <article className="quiz-question-card">
-                <div className="quiz-question-source"><span>{currentQuizQuestion.lectureTitle}</span><small>{lecturerFolderLabel(currentQuizQuestion.lecturer)}{currentQuizQuestion.question.sourcePages.length ? ` · PDF page ${currentQuizQuestion.question.sourcePages.join(", ")}` : ""}</small></div>
+                <div className="quiz-question-source"><span>{currentQuizQuestion.lectureTitle}</span><small>{currentQuizQuestion.lecturer} · <button onClick={() => openQuizQuestionSource(currentQuizQuestion)}>{currentQuizQuestion.question.sourceKind === "slo" ? `SLO ${currentQuizQuestion.question.sourceSloIndexes.map((index) => index + 1).join(", ")}` : currentQuizQuestion.question.sourcePages.length ? `PDF page ${currentQuizQuestion.question.sourcePages.join(", ")}` : "Open source"}</button></small></div>
+                <label className="quiz-topic-field"><span>Topic</span><input value={quizTopicDraft} maxLength={40} onChange={(event) => setQuizTopicDraft(event.target.value.replace(/\s+/g, ""))} onBlur={() => void saveCurrentQuizTopic()} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); event.currentTarget.blur(); } }}/></label>
                 <h1>{currentQuizQuestion.question.prompt}</h1>
                 {currentQuizQuestion.question.type === "multiple-choice" ? <div className="quiz-answer-options">{currentQuizQuestion.question.options.map((option, optionIndex) => {
                   const selected = currentQuizResponse.response === option;
                   const isAnswer = option === currentQuizQuestion.question.answer;
-                  const stateClass = currentQuizResponse.submitted ? isAnswer ? "correct-answer" : selected ? "incorrect-answer" : "" : selected ? "selected" : "";
-                  return <label className={stateClass} key={`${optionIndex}-${option}`}><input type="radio" name="quiz-answer" disabled={currentQuizResponse.submitted} checked={selected} onChange={() => setCurrentQuizResponse(option)}/><b>{String.fromCharCode(65 + optionIndex)}</b><span>{option}</span></label>;
+                  const ruledOut = currentQuizResponse.ruledOut?.includes(option) ?? false;
+                  const stateClass = `${currentQuizResponse.submitted ? isAnswer ? "correct-answer" : selected ? "incorrect-answer" : "" : selected ? "selected" : ""} ${ruledOut ? "ruled-out" : ""}`;
+                  return <div className={`quiz-answer-row ${stateClass}`} key={`${optionIndex}-${option}`}><label><input type="radio" name="quiz-answer" disabled={currentQuizResponse.submitted || ruledOut} checked={selected} onChange={() => setCurrentQuizResponse(option)}/><b>{String.fromCharCode(65 + optionIndex)}</b><span>{option}</span></label><button className="rule-out-answer" type="button" disabled={currentQuizResponse.submitted} aria-label={`${ruledOut ? "Restore" : "Rule out"} answer ${String.fromCharCode(65 + optionIndex)}`} aria-pressed={ruledOut} onClick={() => toggleRuledOut(option)}><AppIcon name="visibility"/></button></div>;
                 })}</div> : <label className="quiz-short-answer"><span>Your answer</span><textarea disabled={currentQuizResponse.submitted} value={currentQuizResponse.response} onChange={(event) => setCurrentQuizResponse(event.target.value)} placeholder="Write a short response, then compare it with the saved answer."/></label>}
                 {currentQuizResponse.submitted && <div className={`quiz-feedback ${currentQuizResponse.correct === true ? "correct" : currentQuizResponse.correct === false ? "incorrect" : "self-grade"}`}>
                   <strong>{currentQuizResponse.correct === true ? "Correct" : currentQuizResponse.correct === false ? "Not quite" : "Compare your response"}</strong>
@@ -1898,7 +1957,7 @@ export default function Home() {
                   {currentQuizQuestion.question.type === "short-answer" && currentQuizResponse.correct === null && <div className="quiz-self-grade"><span>How did you do?</span><button onClick={() => gradeShortAnswer(false)}>Mark incorrect</button><button onClick={() => gradeShortAnswer(true)}>Mark correct</button></div>}
                 </div>}
                 <footer>
-                  <div className="quiz-question-tools"><button className="quiz-delete-question" onClick={() => void deleteCurrentQuizQuestion()}>Delete question</button><button className="quiz-ask-luna" onClick={() => openQuestionChat("lecture", currentQuizQuestion.lectureId, currentQuizQuestion.lectureTitle, currentQuizQuestion.question.id)}>Ask Luna</button></div>
+                  <div className="quiz-question-tools"><button className="quiz-delete-question" onClick={() => void deleteCurrentQuizQuestion()}>Delete question</button><button className="quiz-ask-luna" onClick={() => openQuestionChat(currentQuizQuestion.ownerKind, currentQuizQuestion.ownerId, currentQuizQuestion.lectureTitle, currentQuizQuestion.question.id)}>Ask Luna</button></div>
                   <nav className="quiz-question-navigation" aria-label="Quiz question navigation"><button disabled={quizIndex === 0} onClick={() => navigateQuiz(-1)}>Previous</button><span>{quizIndex + 1} / {quizQuestions.length}</span><button disabled={quizIndex >= quizQuestions.length - 1} onClick={() => navigateQuiz(1)}>Next</button></nav>
                   {!currentQuizResponse.submitted ? <button className="quiz-submit-answer" disabled={!currentQuizResponse.response.trim()} onClick={submitQuizAnswer}>Submit answer</button> : <button className="quiz-next-question" disabled={currentQuizQuestion.question.type === "short-answer" && currentQuizResponse.correct === null} onClick={advanceQuiz}>{allQuizQuestionsComplete ? "See results" : "Next unanswered"}</button>}
                 </footer>
@@ -1907,11 +1966,11 @@ export default function Home() {
           </>}
           {quizMode === "results" && <div className="quiz-results-screen"><article><small>QUIZ COMPLETE</small><h1>{quizPercent}%</h1><p>{quizCorrectCount} of {quizQuestions.length} correct</p><div className="quiz-result-counts"><span><strong>{quizCorrectCount}</strong>Correct</span><span><strong>{incorrectQuizQuestions.length}</strong>Incorrect</span></div><div className="quiz-result-actions">{incorrectQuizQuestions.length > 0 && <button onClick={() => { setQuizReviewIndex(0); setQuizMode("review"); }}>Review incorrect answers</button>}<button onClick={() => { finishQuiz(); openQuizBuilder(); }}>Take another quiz</button><button className="quiz-finish" onClick={finishQuiz}>Finish</button></div></article></div>}
           {quizMode === "review" && reviewQuizQuestion && reviewQuizResponse && <div className="quiz-question-screen quiz-review-screen"><article className="quiz-question-card">
-            <div className="quiz-question-source"><span>{reviewQuizQuestion.lectureTitle}</span><small>{lecturerFolderLabel(reviewQuizQuestion.lecturer)}{reviewQuizQuestion.question.sourcePages.length ? ` · PDF page ${reviewQuizQuestion.question.sourcePages.join(", ")}` : ""}</small></div>
+            <div className="quiz-question-source"><span>{reviewQuizQuestion.lectureTitle}</span><small>{reviewQuizQuestion.lecturer} · <button onClick={() => openQuizQuestionSource(reviewQuizQuestion)}>{reviewQuizQuestion.question.sourceKind === "slo" ? `SLO ${reviewQuizQuestion.question.sourceSloIndexes.map((index) => index + 1).join(", ")}` : reviewQuizQuestion.question.sourcePages.length ? `PDF page ${reviewQuizQuestion.question.sourcePages.join(", ")}` : "Open source"}</button></small></div>
             <h1>{reviewQuizQuestion.question.prompt}</h1>
             {reviewQuizQuestion.question.type === "multiple-choice" && <div className="quiz-answer-options review">{reviewQuizQuestion.question.options.map((option, optionIndex) => <div className={option === reviewQuizQuestion.question.answer ? "correct-answer" : option === reviewQuizResponse.response ? "incorrect-answer" : ""} key={`${optionIndex}-${option}`}><b>{String.fromCharCode(65 + optionIndex)}</b><span>{option}</span></div>)}</div>}
             <div className="quiz-review-comparison"><div><small>Your answer</small><p>{reviewQuizResponse.response}</p></div><div><small>Correct answer</small><p>{reviewQuizQuestion.question.answer}</p></div>{reviewQuizQuestion.question.explanation && <div><small>Explanation</small><p>{reviewQuizQuestion.question.explanation}</p></div>}</div>
-            <button className="quiz-review-ask-luna" onClick={() => openQuestionChat("lecture", reviewQuizQuestion.lectureId, reviewQuizQuestion.lectureTitle, reviewQuizQuestion.question.id)}>Ask Luna about this question</button>
+            <button className="quiz-review-ask-luna" onClick={() => openQuestionChat(reviewQuizQuestion.ownerKind, reviewQuizQuestion.ownerId, reviewQuizQuestion.lectureTitle, reviewQuizQuestion.question.id)}>Ask Luna about this question</button>
             <footer className="quiz-review-navigation"><button disabled={quizReviewIndex === 0} onClick={() => setQuizReviewIndex((index) => Math.max(0, index - 1))}>Previous incorrect</button>{quizReviewIndex < incorrectQuizQuestions.length - 1 ? <button onClick={() => setQuizReviewIndex((index) => index + 1)}>Next incorrect</button> : <button onClick={() => setQuizMode("results")}>Back to results</button>}</footer>
           </article></div>}
         </section>}
@@ -2005,6 +2064,7 @@ export default function Home() {
                   <header><label><input type="checkbox" checked={draft.approved} onChange={(event) => updateQuestionDraft(draft.id, { approved: event.target.checked })}/><span>{draft.approved ? "Approved" : "Not approved"}</span></label><small>{sourceLecture?.title ?? sourcePreRead?.title ?? "Unknown source"} · {sourceDetail}</small><button aria-label={`Remove draft question ${index + 1}`} onClick={() => setQuestionDrafts((current) => current?.filter((item) => item.id !== draft.id) ?? null)}><AppIcon name="trash"/></button></header>
                   <div className="question-draft-fields">
                     <div className="question-draft-type"><span>Question type</span><strong>Multiple choice</strong></div>
+                    <label className="question-draft-topic"><span>Topic · one word</span><input maxLength={40} value={draft.topic} onChange={(event) => updateQuestionDraft(draft.id, { topic: event.target.value.replace(/\s+/g, "") })}/></label>
                     <label><span>Question</span><textarea value={draft.prompt} onChange={(event) => updateQuestionDraft(draft.id, { prompt: event.target.value })}/></label>
                     {draft.type === "multiple-choice" && <div className="draft-options"><span>Answer choices</span>{draft.options.map((option, optionIndex) => <input key={optionIndex} aria-label={`Answer choice ${optionIndex + 1}`} value={option} onChange={(event) => updateQuestionDraft(draft.id, { options: draft.options.map((item, index) => index === optionIndex ? event.target.value : item) })}/>)}</div>}
                     <label><span>Correct answer</span><textarea value={draft.answer} onChange={(event) => updateQuestionDraft(draft.id, { answer: event.target.value })}/></label>
@@ -2028,6 +2088,7 @@ export default function Home() {
             </div>
             {questionEditProposal && <section className="question-edit-proposal">
               <header><div><small>PROPOSED REVISION</small><strong>Nothing changes until you approve.</strong></div></header>
+              <div><small>Topic</small><p>{questionEditProposal.topic}</p></div>
               <div><small>Question</small><p>{questionEditProposal.prompt}</p></div>
               <ol type="A">{questionEditProposal.options.map((option) => <li key={option} className={option === questionEditProposal.answer ? "correct" : ""}>{option}</li>)}</ol>
               <div><small>Correct answer</small><p>{questionEditProposal.answer}</p></div>
@@ -2035,6 +2096,17 @@ export default function Home() {
               <footer><button onClick={() => setQuestionEditProposal(null)}>Reject revision</button><button className="approve-question-edit" onClick={() => void approveQuestionEdit()}>Approve and save</button></footer>
             </section>}
             <form className="question-chat-composer" onSubmit={(event) => { event.preventDefault(); void sendQuestionChat(); }}><textarea aria-label="Message Luna about this question" value={questionChatDraft} onChange={(event) => setQuestionChatDraft(event.target.value)} placeholder="" disabled={questionChatLoading}/><button type="submit" disabled={questionChatLoading || !questionChatDraft.trim()}>Send</button></form>
+          </section>
+        </div>}
+
+        {questionSourcePreview && <div className="question-source-preview-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setQuestionSourcePreview(null); }}>
+          <section className="question-source-preview" role="dialog" aria-modal="true" aria-labelledby="question-source-preview-title">
+            <header><div><small>{questionSourcePreview.sourceKind === "slo" ? "SOURCE OBJECTIVE" : `SOURCE ${questionSourcePreview.ownerKind === "preread" ? "READING" : "SLIDE"}`}</small><h2 id="question-source-preview-title">{questionSourcePreview.title}</h2></div><button className="icon-button" aria-label="Close source" onClick={() => setQuestionSourcePreview(null)}><AppIcon name="x"/></button></header>
+            {questionSourcePreview.sourceKind === "slo" && questionPreviewLecture ? <div className="question-source-slos">{(questionSourcePreview.sloIndexes ?? []).map((index) => <article key={index}><span>SLO {index + 1}</span><p>{questionPreviewLecture.slos[index] ?? "This objective is no longer available."}</p></article>)}</div> : <div className="question-source-page">
+              {(questionSourcePreview.pages?.length ?? 0) > 1 && <nav aria-label="Referenced pages">{questionSourcePreview.pages?.map((page) => <button className={page === questionSourcePreview.page ? "active" : ""} key={page} onClick={() => setQuestionSourcePreview((current) => current ? { ...current, page } : current)}>Page {page}</button>)}</nav>}
+              {questionSourcePreview.page && questionSourceFile ? <PdfCanvasViewer file={questionSourceFile} lectureId={`question-source-${questionSourcePreview.ownerKind}-${questionSourcePreview.ownerId}`} page={questionSourcePreview.page} inkStrokes={[]} penEnabled={false} onInkChange={() => undefined}/> : <article className="question-source-text"><span>{questionSourcePreview.page ? `Page ${questionSourcePreview.page}` : "Source"}</span><h3>{questionPreviewSlide?.heading}</h3><p>{questionPreviewSlide?.text || questionPreviewPreRead?.text || "The original source is not available on this device."}</p></article>}
+            </div>}
+            <footer><span>{quizQuestions.length ? "This source opened over your quiz. Your place has not changed." : "Source preview · Question Bank remains open underneath."}</span><button onClick={() => setQuestionSourcePreview(null)}>{quizQuestions.length ? "Return to quiz" : "Close source"}</button></footer>
           </section>
         </div>}
 

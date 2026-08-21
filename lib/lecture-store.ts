@@ -13,6 +13,7 @@ export type QuestionRecord = {
   options: string[];
   answer: string;
   explanation: string;
+  topic: string;
   sourceKind: QuestionSourceKind;
   sourceLectureId?: string;
   sourcePreReadId?: string;
@@ -201,6 +202,7 @@ function normalizeQuestions(value: unknown, owner: { lectureId?: string; preRead
       options,
       answer,
       explanation: textValue(record.explanation),
+      topic: textValue(record.topic, "Unassigned").split(/\s+/)[0].slice(0, 40),
       sourceKind,
       sourceLectureId: textValue(record.sourceLectureId, owner.lectureId ?? "") || undefined,
       sourcePreReadId: textValue(record.sourcePreReadId, owner.preReadId ?? "") || undefined,

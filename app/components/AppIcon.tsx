@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 
-export function AppIcon({ name }: { name: "library" | "search" | "target" | "upload" | "file" | "spark" | "arrow" | "x" | "star" | "trash" | "folder" | "bookmark" | "flag" | "download" | "link" | "check" }) {
+export function AppIcon({ name }: { name: "library" | "search" | "target" | "upload" | "file" | "spark" | "arrow" | "x" | "star" | "trash" | "folder" | "bookmark" | "flag" | "download" | "link" | "check" | "visibility" }) {
   const paths: Record<string, ReactNode> = {
     library: <><path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H11v16H6.5A2.5 2.5 0 0 0 4 21.5v-16Z"/><path d="M20 5.5A2.5 2.5 0 0 0 17.5 3H13v16h4.5a2.5 2.5 0 0 1 2.5 2.5v-16Z"/></>,
     search: <><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></>,
@@ -18,8 +18,8 @@ export function AppIcon({ name }: { name: "library" | "search" | "target" | "upl
     download: <><path d="M12 3v12m0 0 4-4m-4 4-4-4"/><path d="M5 19h14"/></>,
     link: <><path d="M10 13a5 5 0 0 0 7.5.5l2-2a5 5 0 0 0-7-7l-1.1 1.1"/><path d="M14 11a5 5 0 0 0-7.5-.5l-2 2a5 5 0 0 0 7 7l1.1-1.1"/></>,
     check: <path d="m5 12 4 4L19 6"/>,
+    visibility: <><path d="M2.5 12s3.4-6 9.5-6 9.5 6 9.5 6-3.4 6-9.5 6-9.5-6-9.5-6Z"/><circle cx="12" cy="12" r="2.6"/></>,
   };
   return <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">{paths[name]}</svg>;
 }
-
 

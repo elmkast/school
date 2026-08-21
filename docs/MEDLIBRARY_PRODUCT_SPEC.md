@@ -1,8 +1,9 @@
 # FCOM.lib Product Feature and Development Specification
 
 **Document status:** Living product specification  
-**Version:** 1.7  
-**Date:** August 14, 2026  
+**Version:** 1.8
+
+**Date:** August 20, 2026
 **Current product stage:** Cloud-connected private beta  
 **Intended audience:** Product owner, design, engineering, and future implementation partners
 
@@ -20,7 +21,7 @@ The current MVP proves the central workflow locally:
 6. Save favorites, notes, course corrections, marked slides, and flagged SLOs on the current device.
 7. Search across lectures, SLOs, slides, and assigned pre-reads or export selected SLOs as a clean PDF.
 8. Track assigned pre-reads as unread, read, or re-review without mixing them into the lecture/SLO model.
-9. Select one or more lectures—or individual PDF pages—ask Luna to draft multiple-choice study questions, review and edit every draft, and approve only the questions that should enter a persistent Question Bank.
+9. Draft and approve source-linked multiple-choice questions, manage them in a filterable spreadsheet-style Question Bank, and assemble resumable quizzes from any filtered selection.
 
 The next major milestone is not another interface prototype. It is a cloud-foundation release that adds accounts, durable PDF storage, synchronized metadata, reliable background processing, and grounded AI retrieval across the curriculum.
 
@@ -119,7 +120,7 @@ SLOs
 
 ```
 
-Lectures, SLOs, and Question Bank use the same academic-year/course/lecturer taxonomy. Their filters remain independent so a user can inspect one lecture folder without losing a different study-data filter. Their section headers serve as complete-collection views, avoiding redundant "All" child nodes. Question Bank stores approved questions beneath their source lectures.
+Lectures and SLOs use the academic-year/course/lecturer navigator. Question Bank intentionally uses a flat question inventory instead: every question is one row and its course, week, instructor, source, topic, and performance fields are independently filterable. This supports cross-curriculum question selection without forcing the student through one source folder at a time.
 
 Pre-reads are a separate content type because they do not have lecture SLOs or lecturers. They retain academic-year and course metadata, source attribution, reading status, searchable source text, and an optional original link or locally stored PDF.
 
@@ -221,14 +222,16 @@ Status definitions:
 | Flexible source selection | Implemented | Switch between lecture/page, SLO-only, and pre-read modes; select entire folders or individual sources, with direct drafting entry points from SLO and pre-read pages | Add selected text-range support |
 | Draft review gate | Implemented | Nothing enters the bank automatically; every multiple-choice draft can be edited, approved/rejected, or removed before saving | Add duplicate-question detection and richer answer-choice validation |
 | Persistent approved questions | Implemented | Approved questions preserve explicit source kind plus lecture, pre-read, SLO-index, and page provenance as applicable; pre-read questions persist with their source reading | Add revision history, soft deletion, and explicit sync-conflict handling |
-| Question Bank curriculum tree | Implemented | Mirrors the Lectures/SLO year, course, and lecturer hierarchy and counts approved questions within each folder | Add user-created sets, tags, and multi-course filters only after the core practice workflow is validated |
-| Source-page return | Implemented | Every approved question can reopen its source lecture at the cited PDF page | Highlight the supporting passage when reliable text coordinates are available |
-| Compact bank browsing | Implemented | Lecture groups are collapsed by default and show question counts, reducing the need to scroll through every full question card | Add text search and question-type filters when the bank becomes substantially larger |
-| Quiz builder | Implemented | Select any combination of lectures with per-lecture question counts, choose up to 100 questions, and start a non-persistent randomized attempt. Optional history filters combine as `not seen before OR previously answered incorrectly`, while the curriculum-week filter is applied with `AND`; matching counts and source selection update before the quiz begins | Add flagged-only and difficulty settings without cluttering the initial builder |
-| Focused quiz session | Implemented | Shows one question at a time, randomizes question and answer-choice order, grades multiple choice automatically, and reveals the saved answer and explanation after submission; persistent Previous/Next controls allow free movement while retaining each response, and results remain gated until every question is complete | Add keyboard shortcuts and optional timing only if needed |
+| Spreadsheet Question Bank | Implemented | Replaces lecture cards and the Question Bank folder tree with one Excel-like inventory. Columns include question, course, week, instructor, lecture/reading, source type, exact source, one-word topic, completions, and incorrect attempts | Add server pagination and saved filter views when library scale requires them |
+| Column filters and visibility | Implemented | Every heading opens a check/uncheck value filter; the student can hide or restore optional columns, clear filters, select individual rows, or select every currently filtered row | Persist preferred visible columns and named filter views per account |
+| Source-page return | Implemented | Slide/page and SLO references are links. During a quiz, the exact cited source opens in an overlay without closing the quiz or changing the student's place | Highlight the supporting passage when reliable text coordinates are available |
+| Quiz builder | Implemented | Mirrors the Question Bank table and its active column filters. A student selects rows individually or selects all filtered rows, chooses up to 100, and starts a randomized attempt. History filters combine as `not seen before OR previously answered incorrectly`; curriculum week is applied with `AND` | Add difficulty and quality-signal filters without cluttering the core builder |
+| Focused quiz session | Implemented | Shows one question at a time, randomizes questions and answer-choice order, grades automatically, supports Previous/Next navigation, lets the student rule out and restore options visually, and allows one-word Topic correction | Add keyboard shortcuts and optional timing only if needed |
+| Save and resume quiz | Implemented | An incomplete quiz can be saved locally and resumed with its current question, responses, submitted states, and ruled-out choices intact. Completing a quiz still discards the attempt after results | Synchronize an in-progress quiz across devices only if the workflow proves valuable |
 | Quiz results and review | Implemented | Calculates percent correct and opens a one-question-at-a-time review of every incorrect response; complete attempts are intentionally not persisted, but per-question aggregate counts for seen, correct, and incorrect answers are retained for future quiz filtering | Add spaced repetition, richer longitudinal performance history, and SLO-level analytics as opt-in later capabilities |
-| Question-specific Luna chat | Implemented | Opens a non-persistent discussion from Question Bank or an active quiz question; Luna can explain, challenge, or clarify the item using general medical knowledge | Add optional source retrieval and feedback instrumentation |
-| Approval-gated AI question editing | Implemented | An edit request produces a complete four-choice replacement in a separate review panel; the stored question remains unchanged until the student explicitly approves, and an edited active quiz item resets its response | Add revision history and side-by-side textual diff highlighting |
+| Question-specific Luna chat | Implemented | Opens a non-persistent discussion from Question Bank or an active quiz question. Luna can explain, challenge, or clarify the item and receives query-matched excerpts plus an index of the private lecture/pre-read library for cross-lecture lookup | Add vector retrieval, formal citations, and feedback instrumentation |
+| Approval-gated AI question editing | Implemented | An edit request produces a complete four-to-six-choice replacement in a separate review panel; the stored question remains unchanged until the student explicitly approves, and an edited active quiz item resets its response | Add revision history and side-by-side textual diff highlighting |
+| Variable answer-choice count | Implemented | New generation uses four choices by default and assigns five or six choices to approximately 20% of a batch when a wider differential is educationally credible; existing four-choice questions remain unchanged | Measure distractor quality before changing the target distribution |
 
 #### Planned Question Bank expansion
 
@@ -236,10 +239,10 @@ The next Question Bank release should treat a question's source as explicit stru
 
 1. **SLO-only drafting — implemented:** Select SLOs across one or more lectures and ask Luna for original NBME-style questions aligned to those objectives. This mode may use broader medical knowledge to construct a useful vignette, while retaining the selected SLOs as the pedagogic target and clearly distinguishing them from page-grounded questions.
 2. **Pre-read drafting — implemented:** Select one or more assigned pre-reads as grounded question sources. Indexed PDF pages retain page provenance; saved article text retains pre-read provenance.
-3. **Source-aware organization:** Filter and sort by source kind (`lecture`, `slide`, `SLO`, or `pre-read`), academic year, course, lecturer, originating lecture/pre-read, and quality signal. A question may retain both a pedagogic SLO link and supporting lecture/page links.
-4. **Large-pool quiz sampling:** Let the student choose how many questions to draw from a selected pool so a lecture with 100 questions does not consume the entire 100-question quiz limit.
+3. **Source-aware organization — implemented:** Filter the flat inventory by source kind, course, week, instructor, originating lecture/pre-read, exact source, one-word topic, and performance counts. Hide or show columns without changing question data.
+4. **Large-pool quiz sampling — implemented:** Select individual rows or all filtered rows, then choose how many questions to draw from that pool up to 100.
 5. **In-quiz curation:** Delete a bad question immediately while taking a quiz, with confirmation, and mark a particularly useful question as **Great question** for later filtered review.
-6. **Variable answer-choice count:** Permit four, five, or six choices. Luna should use more than four only when the additional distractors are distinct and educationally credible; the schema must enforce 4–6 choices and exactly one matching answer.
+6. **Variable answer-choice count — implemented:** Permit four, five, or six choices. Luna uses more than four for about 20% of a generated batch when the additional distractors are distinct and educationally credible; the schema enforces 4–6 choices and exactly one matching answer.
 7. **Question-specific Luna chat — implemented:** Provide a non-persistent chat from Question Bank and the active quiz question for explanations, clarification, discussion, and approval-gated revisions without forcing the student back to the lecture viewer.
 
 ### 6.7 Search and retrieval
@@ -253,7 +256,7 @@ The next Question Bank release should treat a question's source as explicit stru
 | Search sorting | Implemented | Sorts by relevance, curriculum week, or source name | Tune relevance with usage data and source-confidence signals |
 | Search result page references | Implemented | Opens the exact lecture slide or pre-read PDF page when available | Highlight matched text on the source/side panel |
 | Semantic search | Planned | — | Retrieve conceptually related slides across all lectures |
-| Grounded curriculum Q&A | Planned | — | Answer only from selected curriculum scope with page-level citations |
+| Grounded curriculum Q&A | Partial | Lecture chat and question-specific Luna chat receive query-ranked lecture-slide, SLO, and pre-read excerpts plus a compact library index, and can identify matching lecture/page/SLO locations | Replace lexical client retrieval with account-scoped semantic retrieval and validated page citations |
 | Saved searches | Candidate | — | Re-run recurring curriculum queries |
 
 ### 6.8 Account, storage, and platform
@@ -496,6 +499,7 @@ This mapping is now the working private-beta architecture. Future work should ha
 - `options`
 - `answer`
 - `explanation`
+- `topic` (one medically meaningful word; Luna-generated and manually correctable)
 - `source_page_numbers`
 - `generation_model`
 - `generation_prompt_version`
@@ -547,9 +551,10 @@ This mapping is now the working private-beta architecture. Future work should ha
 
 1. Open Question Bank and choose Draft with Luna, or start from the current PDF page.
 2. Choose lecture material, SLOs, or pre-reads; select one or more sources, request up to 100 questions, and optionally tell Luna what kind of questions to emphasize.
-3. Review Luna's structured drafts; edit wording, answer choices, answer, and explanation as needed.
+3. Review Luna's structured drafts; edit the one-word topic, wording, four-to-six answer choices, answer, and explanation as needed.
 4. Approve useful questions and reject or remove the rest.
-5. Open approved questions through the mirrored curriculum tree and return to any cited source page.
+5. Filter the spreadsheet-style bank, select individual rows or all filtered rows, and build a randomized quiz.
+6. Open any cited slide or SLO over the active quiz, rule out answer choices, correct Topic when needed, and save an interrupted quiz for later.
 
 ## 11. Non-functional requirements
 

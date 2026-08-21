@@ -7,11 +7,11 @@ export default async (request: Request) => {
   if (request.method !== "POST") return new Response("Method not allowed", { status: 405 });
   const apiKey = Netlify.env.get("OPENAI_API_KEY");
   if (!apiKey) return Response.json({ error: "OPENAI_API_KEY is not configured" }, { status: 503 });
-  const { question, slide, surrounding = [], history = [] } = await request.json() as { question?: string; slide?: SlideInput; surrounding?: SlideInput[]; history?: HistoryInput[] };
+  const { question, slide, surrounding = [], history = [], libraryContext = "" } = await request.json() as { question?: string; slide?: SlideInput; surrounding?: SlideInput[]; history?: HistoryInput[]; libraryContext?: string };
   if (!question?.trim() || !slide?.page) return Response.json({ error: "A question and slide are required" }, { status: 400 });
   const source = [slide, ...surrounding].map((item) => `[PDF page ${item.page}] ${item.heading}\n${item.text}`).join("\n\n").slice(0, 30_000);
   const conversation = history.slice(-6).map((message) => `${message.role === "assistant" ? "Luna" : "Student"}: ${String(message.text).slice(0, 2000)}`).join("\n");
-  const prompt = `You are Luna, a concise medical-school study tutor inside a lecture PDF viewer. Answer the student's actual question directly from your medical knowledge. Do not begin by referring to the slide or describing what the slide says unless the student explicitly asks about the slide or that reference is essential to the answer. Treat the current page and nearby pages as optional background: use them silently when relevant and ignore them when they do not answer the question. Do not label information as slide-based, outside, external, or supplemental context. If the question is ambiguous, use the lecture context to infer the intended topic. Prefer clear prose and short lists. Do not provide patient-specific medical advice. Return JSON with one string field named answer.
+  const prompt = `You are Luna, a concise medical-school study tutor inside a lecture PDF viewer. Answer the student's actual question directly from your medical knowledge. You also have retrieved access to the student's private curriculum library; use it when the student asks where else a topic appears, and identify matching lecture titles and PDF pages or SLOs. Do not begin by referring to the current slide unless the student explicitly asks about it or that reference is essential. Treat the current page and nearby pages as optional background. Do not label information as outside or supplemental context. If the question is ambiguous, use the lecture and library context to infer the intended topic. Prefer clear prose and short lists. Do not provide patient-specific medical advice. Return JSON with one string field named answer.
 
 Recent conversation:
 ${conversation || "No earlier messages."}
@@ -20,7 +20,10 @@ Student question:
 ${question.trim().slice(0, 2000)}
 
 Lecture context:
-${source}`;
+${source}
+
+Retrieved curriculum library:
+${String(libraryContext).slice(0, 65_000) || "No matching excerpts were supplied."}`;
   const response = await fetch("https://api.openai.com/v1/responses", {
     method: "POST",
     headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },

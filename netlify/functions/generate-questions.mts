@@ -24,11 +24,11 @@ const questionFormat = {
         sourceId: { type: "string" },
         sourceSloIndexes: { type: "array", items: { type: "integer" } },
         type: { type: "string", enum: ["multiple-choice"] },
-        prompt: { type: "string" }, options: { type: "array", items: { type: "string" } },
+        prompt: { type: "string" }, topic: { type: "string" }, options: { type: "array", items: { type: "string" }, minItems: 4, maxItems: 6 },
         answer: { type: "string" }, explanation: { type: "string" },
         sourcePages: { type: "array", items: { type: "integer" } },
       },
-      required: ["sourceKind", "sourceId", "sourceSloIndexes", "type", "prompt", "options", "answer", "explanation", "sourcePages"],
+      required: ["sourceKind", "sourceId", "sourceSloIndexes", "type", "prompt", "topic", "options", "answer", "explanation", "sourcePages"],
       additionalProperties: false,
     } } },
     required: ["questions"], additionalProperties: false,
@@ -87,11 +87,13 @@ export default async (request: Request) => {
       : sourceMode === "preread"
         ? "Use only the supplied pre-read content. Every question must be answerable from its cited pre-read page or excerpt. Copy the pre-read source ID, leave sourceSloIndexes empty, and cite relevant pages in sourcePages."
         : "Use only the supplied lecture material. Every question must be answerable from its cited page. Copy the lecture/slide source ID, leave sourceSloIndexes empty, and cite relevant pages in sourcePages.";
+    const expandedChoiceCount = Math.max(0, Math.round(batchCount * 0.2));
     const prompt = `Draft ${batchCount} high-quality multiple-choice study questions for a medical student. This is batch ${batchIndex + 1} of ${batchSizes.length}; make it varied and distinct, with broad coverage of the selected sources. ${grounding}
 
 For every question:
 - Copy sourceKind and sourceId exactly from one supplied source; never combine source IDs in one question.
-- Provide exactly four plausible options and make answer exactly match the correct option text.
+- Provide four plausible options for most questions. For exactly ${expandedChoiceCount} question${expandedChoiceCount === 1 ? "" : "s"} in this batch, provide five or six options when the content genuinely benefits from a broader differential. Make answer exactly match the correct option text.
+- Set topic to exactly one medically meaningful word describing the main tested concept. No spaces, punctuation, or multi-word phrases.
 - Cover central mechanisms, distinctions, definitions, and applications rather than isolated trivia.
 - Use a clinical vignette when it improves the assessment, especially for SLO-based drafting.
 - Keep the explanation concise and educational.
