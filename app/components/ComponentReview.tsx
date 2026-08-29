@@ -10,11 +10,11 @@ export function ComponentReview() {
       <button type="button" onClick={() => { window.location.href = "/"; }}>Return to FCOM.lib</button>
     </header>
     <section className="component-review-section component-review-section-wide">
-      <div className="component-review-label"><span>Lecture import · Garamond</span></div>
+      <div className="component-review-label"><span>Lecture import · Georgia</span></div>
       <UploadReviewPrototype />
     </section>
     <section className="component-review-section component-review-section-wide">
-      <div className="component-review-label"><span>SLO page overhaul · Garamond</span></div>
+      <div className="component-review-label"><span>SLO page overhaul · Georgia</span></div>
       <SloReviewPrototype />
     </section>
   </main>;
