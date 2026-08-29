@@ -1,7 +1,7 @@
 "use client";
 
 import { UploadReviewPrototype } from "./UploadReviewPrototype";
-import { SloReviewPrototype } from "./SloReviewPrototype";
+import { SloBoardProposal, SloComposerProposal, SloLedgerProposal } from "./SloStudyProposals";
 
 export function ComponentReview() {
   return <main className="component-review-page upload-review-sheet">
@@ -14,8 +14,16 @@ export function ComponentReview() {
       <UploadReviewPrototype />
     </section>
     <section className="component-review-section component-review-section-wide">
-      <div className="component-review-label"><span>SLO page overhaul · Georgia</span></div>
-      <SloReviewPrototype />
+      <div className="component-review-label"><span>A · Study set composer</span></div>
+      <SloComposerProposal />
+    </section>
+    <section className="component-review-section component-review-section-wide">
+      <div className="component-review-label"><span>B · Confidence board</span></div>
+      <SloBoardProposal />
+    </section>
+    <section className="component-review-section component-review-section-wide">
+      <div className="component-review-label"><span>C · Study ledger</span></div>
+      <SloLedgerProposal />
     </section>
   </main>;
 }

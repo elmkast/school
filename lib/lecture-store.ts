@@ -4,6 +4,7 @@ import { lectureWeekValue } from "./curriculum";
 export type Slide = { page: number; text: string; heading: string };
 export type InkPoint = { x: number; y: number };
 export type InkStroke = { id: string; points: InkPoint[] };
+export type SloStrength = "weak" | "okay" | "strong";
 
 export type Lecture = {
   id: string;
@@ -22,6 +23,8 @@ export type Lecture = {
   markups: Record<number, InkStroke[]>;
   markedSlides: number[];
   flaggedSLOs: number[];
+  sloStrengths: Record<number, SloStrength>;
+  studySLOs: number[];
   fileName?: string;
   createdAt: string;
 };
@@ -133,6 +136,17 @@ function normalizeMarkups(value: unknown): Record<number, InkStroke[]> {
   return Object.fromEntries(entries);
 }
 
+function normalizeSloStrengths(value: unknown): Record<number, SloStrength> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+  return Object.fromEntries(Object.entries(value).filter(([index, strength]) => Number.isInteger(Number(index)) && Number(index) >= 0 && (strength === "weak" || strength === "okay" || strength === "strong"))) as Record<number, SloStrength>;
+}
+
+function normalizeSloIndexes(value: unknown) {
+  return Array.isArray(value)
+    ? Array.from(new Set(value.filter((index): index is number => typeof index === "number" && Number.isInteger(index) && index >= 0))).sort((a, b) => a - b)
+    : [];
+}
+
 export function normalizeLecture(value: unknown): Lecture | null {
   if (!value || typeof value !== "object") return null;
   const lecture = value as Record<string, unknown>;
@@ -144,9 +158,8 @@ export function normalizeLecture(value: unknown): Lecture | null {
   const markedSlides = Array.isArray(lecture.markedSlides)
     ? Array.from(new Set(lecture.markedSlides.filter((page): page is number => typeof page === "number" && Number.isInteger(page) && page > 0))).sort((a, b) => a - b)
     : [];
-  const flaggedSLOs = Array.isArray(lecture.flaggedSLOs)
-    ? Array.from(new Set(lecture.flaggedSLOs.filter((index): index is number => typeof index === "number" && Number.isInteger(index) && index >= 0)))
-    : [];
+  const flaggedSLOs = normalizeSloIndexes(lecture.flaggedSLOs);
+  const studySLOs = normalizeSloIndexes(lecture.studySLOs);
   return {
     id,
     title: textValue(lecture.title, "Untitled lecture"),
@@ -164,6 +177,8 @@ export function normalizeLecture(value: unknown): Lecture | null {
     markups: normalizeMarkups(lecture.markups),
     markedSlides,
     flaggedSLOs,
+    sloStrengths: normalizeSloStrengths(lecture.sloStrengths),
+    studySLOs,
     fileName: typeof lecture.fileName === "string" ? lecture.fileName : undefined,
     createdAt: textValue(lecture.createdAt, new Date(0).toISOString()),
   };
