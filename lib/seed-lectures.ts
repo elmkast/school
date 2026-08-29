@@ -26,7 +26,6 @@ export const seedLectures: Lecture[] = [
     markups: {},
     markedSlides: [],
     flaggedSLOs: [],
-    questions: [],
     slides: [
       { page: 7, heading: "Disease gene identification", text: "Linkage analysis maps a region containing a disease gene; whole-genome and exome sequencing identify causative genes and mutations." },
       { page: 16, heading: "Whole Exome Sequencing", text: "WES captures and sequences exons, which comprise about 2% of the genome and contain many disease-causing mutations." },
@@ -59,7 +58,6 @@ export const seedLectures: Lecture[] = [
     markups: {},
     markedSlides: [],
     flaggedSLOs: [],
-    questions: [],
     slides: [
       { page: 8, heading: "Chromosome nomenclature", text: "ISCN positions use chromosome number, p or q arm, region, band and sub-band." },
       { page: 18, heading: "Comparison of chromosome analysis", text: "Chromosome banding, FISH and array CGH differ in resolution and ability to detect balanced rearrangements or DNA copy-number changes." },

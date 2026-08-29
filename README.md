@@ -1,73 +1,61 @@
-# FCOM.lib MVP
+# FCOM.lib
 
-A private, searchable lecture-slide library for medical school. It imports PDF decks in the browser, extracts slide-level text, detects SLOs, syncs a private curriculum library through Supabase, and provides exact keyword search with page references.
+A private, searchable, AI-assisted lecture library for medical school. FCOM.lib imports PDF decks, extracts page-level text, structures lecture metadata and SLOs with Luna, and synchronizes a private library through Supabase.
 
-See the [product feature and development specification](docs/MEDLIBRARY_PRODUCT_SPEC.md) for the complete feature register, architecture direction, risks, and phased roadmap.
+See the [product specification](docs/MEDLIBRARY_PRODUCT_SPEC.md) and [UX system](docs/UX_SYSTEM_SPEC.md) for current scope and design rules.
 
-## Included
+## Current product
 
-- Home, Lectures, search, SLO, pre-read, and Question Bank views
-- Two representative genetics lecture records
-- Browser-based PDF text extraction (no visual analysis)
-- Supabase email/password accounts, private cloud records, and private PDF storage
-- Device-local caching with a one-time, non-destructive migration into the cloud library
-- Netlify-ready production build
-- In-session Luna chat grounded in the current slide and nearby lecture context
-- Local PDF viewer and automatically saved per-slide notes
-- Persistent freehand pen markup on individual PDF pages with per-stroke undo
-- Selectable PDF text for copying lecture content
-- Academic-year folders, favorites, and removable lecture records
-- A controlled page-by-page PDF reader so AI explanations match the visible page
-- Editable course designations and direct lecture access from the SLO dashboard
-- Sequential multi-PDF imports with current, next, completed, and failed queue states
-- Persistent per-slide bookmarks with quick return links in the lecture reader
-- Conversation-first study companion with Enter-to-send chat, compact study drawers, and independently collapsible PDF and Luna panes
-- Matching collapsible academic-year/course trees for Lectures and SLO filtering
-- Lecturer subfolders within every course, mirrored in Lectures and SLOs
-- Persistent course, lecturer, and manually assigned curriculum-week editing
-- Lecture sorting by curriculum week or name, with Week 1 through Week 52 available and unassigned lectures placed last
-- Persistent per-SLO flags with a dedicated Flagged SLOs view
-- Plain black-and-white SLO PDF export with year, course, lecturer, and lecture selection, week/lecturer ordering, last-name-only lecturer labels, and an optional Strong / O.K. / Weak progress tracker
-- Editable SLO Excel export with last-name-only lecturer labels, curriculum week, lecture title, SLO text, a Strong / O.K. / Weak dropdown, and notes
-- Keep-together SLO pagination with repeated headings for unusually long lectures
-- Clickable SLO folder breadcrumbs and larger objective text
-- Grouped curriculum search across lectures, SLOs, slides, and pre-reads with modern filters and sorting
-- Discreet Luna SLO re-parsing with optional instructions and review-before-replace
-- Separate Lectures & SLO and exact Source text search modes
-- Visual Home archive with lazy-rendered first-page PDF previews, course/week grouping, and direct lecture access
-- Automatically expiring notifications and count-free SLO navigation
-- Persistent pre-read library for PDF or pasted web readings
-- Unread, Read, and Re-review pre-read states with a dedicated re-review queue
-- Page-level PDF pre-read indexing and saved article-text search
+- Visual lecture archive with first-page PDF previews
+- Dynamic course filtering and newest-week-first grouping
+- Multi-PDF import with visible sequential processing
+- Page-accurate PDF viewer with persistent pen markup and marked slides
+- Autosaving per-page notes
+- Non-persistent Luna chat in the lecture viewer
+- Exact lecture, SLO, and extracted slide-text search
+- SLO review with week/flag filters, Luna re-parsing, and PDF/Excel export
+- Supabase email/password accounts, private records, and private PDF storage
+- Device caching plus one-time, non-destructive lecture migration to cloud
+- Netlify production build and serverless AI endpoints
 
-## Development environment
+Question Bank and pre-reads are intentionally retired. The legacy Question Bank implementation and its stored questions are removed; legacy pre-read content is left untouched but is no longer part of the active application.
 
-Netlify is the single supported application runtime. The former standalone local AI server has been retired so prompts and server behavior cannot drift between environments. Frontend-only development remains available through `pnpm dev:netlify`; AI workflows should be tested through a Netlify deploy or Netlify's development runtime.
+## Development
 
-Supabase's publishable key is intentionally available to the browser; row-level security protects each user's data. IndexedDB remains a device cache. Luna chat is intentionally session-only and is cleared when a lecture is reopened.
+Netlify is the supported application runtime. Frontend development uses:
 
-## Configure Supabase once
+```powershell
+pnpm dev:netlify
+```
+
+Run checks before deployment:
+
+```powershell
+pnpm lint
+pnpm build:netlify
+```
+
+## Configure Supabase
 
 1. Open **Supabase Dashboard → SQL Editor → New query**.
-2. Copy and run [`supabase/migrations/202608120001_fcom_library.sql`](supabase/migrations/202608120001_fcom_library.sql). This creates the private data tables, the private `fcom-library` Storage bucket, and per-user access policies.
+2. Run [`supabase/migrations/202608120001_fcom_library.sql`](supabase/migrations/202608120001_fcom_library.sql).
 3. In **Authentication → URL Configuration**, set the Site URL to the Netlify production URL.
-4. In **Authentication → Providers → Email**, keep Email enabled. Choose whether email confirmation is required; confirmation is recommended before inviting additional users.
+4. Keep the Email authentication provider enabled.
 
-On the first signed-in launch, FCOM.lib detects an empty cloud account and offers **Migrate this device**. Migration copies all local lecture records, PDFs, notes, markups, SLO flags, and pre-reads. It does not remove the local copies.
-
-Browser data belongs to the exact origin that created it. To migrate an existing local library, start FCOM.lib at the same address originally used (for this project, `http://127.0.0.1:5173`), sign into the cloud account there, and choose **Sync this device** in the lower-left account area. Opening the Netlify site cannot directly read IndexedDB owned by `127.0.0.1`.
+The Supabase publishable key is browser-safe; row-level security protects user records. Never put a secret or service-role key in a `VITE_` variable.
 
 ## Deploy to Netlify
 
-1. Put this project in a Git repository and import it into Netlify, or use the Netlify CLI.
-2. Netlify reads `netlify.toml`; no custom build settings are required.
-3. Add `OPENAI_API_KEY`, `VITE_SUPABASE_URL`, and `VITE_SUPABASE_PUBLISHABLE_KEY` in **Site configuration → Environment variables**. The OpenAI key is server-only; the two `VITE_` values are the browser-safe Supabase project URL and publishable key.
+1. Import the Git repository into Netlify.
+2. Let Netlify use `netlify.toml` for build settings.
+3. Add `OPENAI_API_KEY`, `VITE_SUPABASE_URL`, and `VITE_SUPABASE_PUBLISHABLE_KEY` in **Site configuration → Environment variables**.
 4. Deploy.
 
-The OpenAI key is read only by the Netlify function and is never exposed to the browser. Never place a Supabase secret key or service-role key in a `VITE_` variable.
+The OpenAI key is read only by Netlify functions and is never exposed to the browser.
 
 ## Current limitations
 
-- Search is structured keyword search across lecture metadata, SLOs, slide text, and saved pre-read text. Semantic search belongs in a later phase.
-- The first cloud migration runs in the open browser tab; keep that tab open until it reports completion.
-- This tool organizes source material; it is not a substitute for verifying the original slide or medical guidance.
+- Search is keyword-based, not vector semantic search.
+- The first cloud migration runs in the open browser tab.
+- Missing device thumbnails do not block lecture access, but the first-page preview requires the PDF to exist locally or in private cloud storage.
+- FCOM.lib organizes study material; the original curriculum source remains authoritative.

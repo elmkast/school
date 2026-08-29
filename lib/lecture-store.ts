@@ -4,27 +4,6 @@ import { lectureWeekValue } from "./curriculum";
 export type Slide = { page: number; text: string; heading: string };
 export type InkPoint = { x: number; y: number };
 export type InkStroke = { id: string; points: InkPoint[] };
-export type QuestionType = "multiple-choice" | "short-answer";
-export type QuestionSourceKind = "lecture" | "slide" | "slo" | "preread";
-export type QuestionRecord = {
-  id: string;
-  type: QuestionType;
-  prompt: string;
-  options: string[];
-  answer: string;
-  explanation: string;
-  topic: string;
-  sourceKind: QuestionSourceKind;
-  sourceLectureId?: string;
-  sourcePreReadId?: string;
-  sourceSloIndexes: number[];
-  sourcePages: number[];
-  timesSeen: number;
-  timesCorrect: number;
-  timesIncorrect: number;
-  lastAnsweredAt?: string;
-  createdAt: string;
-};
 
 export type Lecture = {
   id: string;
@@ -43,25 +22,6 @@ export type Lecture = {
   markups: Record<number, InkStroke[]>;
   markedSlides: number[];
   flaggedSLOs: number[];
-  questions: QuestionRecord[];
-  fileName?: string;
-  createdAt: string;
-};
-
-export type PreReadStatus = "unread" | "read" | "rereview";
-
-export type PreRead = {
-  id: string;
-  title: string;
-  author: string;
-  course: string;
-  academicYear: string;
-  sourceType: "pdf" | "web";
-  sourceUrl?: string;
-  text: string;
-  pages: Slide[];
-  questions: QuestionRecord[];
-  status: PreReadStatus;
   fileName?: string;
   createdAt: string;
 };
@@ -74,7 +34,6 @@ let cloudUserId: string | null = null;
 
 export type CloudLibrary = {
   lectures: Lecture[];
-  preReads: PreRead[];
 };
 
 export type MigrationProgress = {
@@ -87,7 +46,7 @@ export function setCloudUser(userId: string | null) {
   cloudUserId = userId;
 }
 
-function cloudFilePath(kind: "lectures" | "prereads", id: string) {
+function cloudFilePath(kind: "lectures", id: string) {
   if (!cloudUserId) throw new Error("Sign in before accessing cloud files.");
   return `${cloudUserId}/${kind}/${id}.pdf`;
 }
@@ -174,49 +133,6 @@ function normalizeMarkups(value: unknown): Record<number, InkStroke[]> {
   return Object.fromEntries(entries);
 }
 
-function normalizeQuestions(value: unknown, owner: { lectureId?: string; preReadId?: string } = {}): QuestionRecord[] {
-  if (!Array.isArray(value)) return [];
-  return value.flatMap((item) => {
-    if (!item || typeof item !== "object") return [];
-    const record = item as Record<string, unknown>;
-    const id = textValue(record.id);
-    const prompt = textValue(record.prompt);
-    const answer = textValue(record.answer);
-    if (!id || !prompt || !answer) return [];
-    const type: QuestionType = record.type === "multiple-choice" ? "multiple-choice" : "short-answer";
-    const options = type === "multiple-choice" ? textList(record.options).slice(0, 6) : [];
-    const sourcePages = Array.isArray(record.sourcePages)
-      ? Array.from(new Set(record.sourcePages.filter((page): page is number => typeof page === "number" && Number.isInteger(page) && page > 0))).sort((a, b) => a - b)
-      : [];
-    const sourceSloIndexes = Array.isArray(record.sourceSloIndexes)
-      ? Array.from(new Set(record.sourceSloIndexes.filter((index): index is number => typeof index === "number" && Number.isInteger(index) && index >= 0))).sort((a, b) => a - b)
-      : [];
-    const requestedSourceKind = record.sourceKind;
-    const sourceKind: QuestionSourceKind = requestedSourceKind === "lecture" || requestedSourceKind === "slide" || requestedSourceKind === "slo" || requestedSourceKind === "preread"
-      ? requestedSourceKind
-      : owner.preReadId ? "preread" : sourcePages.length ? "slide" : "lecture";
-    return [{
-      id,
-      type,
-      prompt,
-      options,
-      answer,
-      explanation: textValue(record.explanation),
-      topic: textValue(record.topic, "Unassigned").split(/\s+/)[0].slice(0, 40),
-      sourceKind,
-      sourceLectureId: textValue(record.sourceLectureId, owner.lectureId ?? "") || undefined,
-      sourcePreReadId: textValue(record.sourcePreReadId, owner.preReadId ?? "") || undefined,
-      sourceSloIndexes,
-      sourcePages,
-      timesSeen: typeof record.timesSeen === "number" && Number.isFinite(record.timesSeen) ? Math.max(0, Math.floor(record.timesSeen)) : 0,
-      timesCorrect: typeof record.timesCorrect === "number" && Number.isFinite(record.timesCorrect) ? Math.max(0, Math.floor(record.timesCorrect)) : 0,
-      timesIncorrect: typeof record.timesIncorrect === "number" && Number.isFinite(record.timesIncorrect) ? Math.max(0, Math.floor(record.timesIncorrect)) : 0,
-      lastAnsweredAt: textValue(record.lastAnsweredAt) || undefined,
-      createdAt: textValue(record.createdAt, new Date().toISOString()),
-    }];
-  });
-}
-
 export function normalizeLecture(value: unknown): Lecture | null {
   if (!value || typeof value !== "object") return null;
   const lecture = value as Record<string, unknown>;
@@ -248,37 +164,12 @@ export function normalizeLecture(value: unknown): Lecture | null {
     markups: normalizeMarkups(lecture.markups),
     markedSlides,
     flaggedSLOs,
-    questions: normalizeQuestions(lecture.questions, { lectureId: id }),
     fileName: typeof lecture.fileName === "string" ? lecture.fileName : undefined,
     createdAt: textValue(lecture.createdAt, new Date(0).toISOString()),
   };
 }
 
-function normalizePreRead(value: unknown): PreRead | null {
-  if (!value || typeof value !== "object") return null;
-  const preRead = value as Record<string, unknown>;
-  const id = textValue(preRead.id);
-  if (!id) return null;
-  const sourceType = preRead.sourceType === "pdf" ? "pdf" : "web";
-  const status: PreReadStatus = preRead.status === "read" || preRead.status === "rereview" ? preRead.status : "unread";
-  return {
-    id,
-    title: textValue(preRead.title, "Untitled pre-read"),
-    author: textValue(preRead.author, "Author not listed"),
-    course: textValue(preRead.course, "Unsorted"),
-    academicYear: textValue(preRead.academicYear, "2026-2027"),
-    sourceType,
-    sourceUrl: typeof preRead.sourceUrl === "string" && preRead.sourceUrl.trim() ? preRead.sourceUrl.trim() : undefined,
-    text: typeof preRead.text === "string" ? preRead.text : "",
-    pages: normalizeSlides(preRead.pages),
-    questions: normalizeQuestions(preRead.questions, { preReadId: id }),
-    status,
-    fileName: typeof preRead.fileName === "string" ? preRead.fileName : undefined,
-    createdAt: textValue(preRead.createdAt, new Date(0).toISOString()),
-  };
-}
-
-async function uploadCloudFile(kind: "lectures" | "prereads", id: string, file: Blob) {
+async function uploadCloudFile(kind: "lectures", id: string, file: Blob) {
   if (!supabase || !cloudUserId) return null;
   const path = cloudFilePath(kind, id);
   const { error } = await supabase.storage.from(CLOUD_BUCKET).upload(path, file, {
@@ -304,21 +195,7 @@ async function upsertCloudLecture(lecture: Lecture, file?: Blob) {
   if (error) throw error;
 }
 
-async function upsertCloudPreRead(preRead: PreRead, file?: Blob) {
-  if (!supabase || !cloudUserId) return;
-  const filePath = preRead.sourceType === "pdf" && preRead.fileName ? cloudFilePath("prereads", preRead.id) : null;
-  if (file) await uploadCloudFile("prereads", preRead.id, file);
-  const { error } = await supabase.from("fcom_prereads").upsert({
-    user_id: cloudUserId,
-    id: preRead.id,
-    data: preRead,
-    file_path: filePath,
-    updated_at: new Date().toISOString(),
-  }, { onConflict: "user_id,id" });
-  if (error) throw error;
-}
-
-async function downloadCloudFile(kind: "lectures" | "prereads", id: string) {
+async function downloadCloudFile(kind: "lectures", id: string) {
   if (!supabase || !cloudUserId) return null;
   const { data, error } = await supabase.storage.from(CLOUD_BUCKET).download(cloudFilePath(kind, id));
   if (error) {
@@ -328,7 +205,7 @@ async function downloadCloudFile(kind: "lectures" | "prereads", id: string) {
   return data;
 }
 
-async function removeCloudRecord(table: "fcom_lectures" | "fcom_prereads", id: string, fileKind?: "lectures" | "prereads") {
+async function removeCloudRecord(table: "fcom_lectures", id: string, fileKind?: "lectures") {
   if (!supabase || !cloudUserId) return;
   if (fileKind) {
     const { error: fileError } = await supabase.storage.from(CLOUD_BUCKET).remove([cloudFilePath(fileKind, id)]);
@@ -345,22 +222,28 @@ async function getLocalLectureFile(id: string): Promise<Blob | null> {
   return record?.file ?? null;
 }
 
-async function getLocalPreReadFile(id: string): Promise<Blob | null> {
-  const db = await openDatabase();
-  const record = await requestResult(db.transaction("prereadFiles", "readonly").objectStore("prereadFiles").get(id)) as { file?: Blob } | undefined;
-  db.close();
-  return record?.file ?? null;
-}
-
 export async function loadLectures(): Promise<Lecture[]> {
   const db = await openDatabase();
-  const tx = db.transaction("lectures", "readonly");
-  const lectures = await requestResult(tx.objectStore("lectures").getAll()) as unknown[];
+  const tx = db.transaction(["lectures", "prereads"], "readwrite");
+  const lectureStore = tx.objectStore("lectures");
+  const lectures = await requestResult(lectureStore.getAll()) as unknown[];
+  const normalized = lectures.map(normalizeLecture).filter((lecture): lecture is Lecture => lecture !== null);
+  normalized.forEach((lecture) => lectureStore.put(lecture));
+  const retiredPreReadStore = tx.objectStore("prereads");
+  const retiredPreReads = await requestResult(retiredPreReadStore.getAll()) as Record<string, unknown>[];
+  retiredPreReads.forEach((preRead) => {
+    if (Array.isArray(preRead.questions) && preRead.questions.length) {
+      const cleaned = { ...preRead };
+      delete cleaned.questions;
+      retiredPreReadStore.put(cleaned);
+    }
+  });
+  await new Promise<void>((resolve, reject) => {
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
   db.close();
-  return lectures
-    .map(normalizeLecture)
-    .filter((lecture): lecture is Lecture => lecture !== null)
-    .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  return normalized.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 }
 
 export async function saveLecture(lecture: Lecture, file?: Blob) {
@@ -420,66 +303,11 @@ export async function deleteLecture(id: string) {
   await attemptCloudSync(() => removeCloudRecord("fcom_lectures", id, "lectures"));
 }
 
-export async function loadPreReads(): Promise<PreRead[]> {
-  const db = await openDatabase();
-  const tx = db.transaction("prereads", "readonly");
-  const preReads = await requestResult(tx.objectStore("prereads").getAll()) as unknown[];
-  db.close();
-  return preReads
-    .map(normalizePreRead)
-    .filter((preRead): preRead is PreRead => preRead !== null)
-    .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
-}
-
-export async function savePreRead(preRead: PreRead, file?: Blob) {
-  const db = await openDatabase();
-  const tx = db.transaction(["prereads", "prereadFiles"], "readwrite");
-  tx.objectStore("prereads").put(preRead);
-  if (file) tx.objectStore("prereadFiles").put({ id: preRead.id, file });
-  await new Promise<void>((resolve, reject) => {
-    tx.oncomplete = () => resolve();
-    tx.onerror = () => reject(tx.error);
-  });
-  db.close();
-  await attemptCloudSync(() => upsertCloudPreRead(preRead, file));
-}
-
-export async function getPreReadFile(id: string): Promise<Blob | null> {
-  const local = await getLocalPreReadFile(id);
-  if (local) return local;
-  const cloud = await downloadCloudFile("prereads", id);
-  if (!cloud) return null;
-  const db = await openDatabase();
-  const tx = db.transaction("prereadFiles", "readwrite");
-  tx.objectStore("prereadFiles").put({ id, file: cloud });
-  await new Promise<void>((resolve, reject) => {
-    tx.oncomplete = () => resolve();
-    tx.onerror = () => reject(tx.error);
-  });
-  db.close();
-  return cloud;
-}
-
-export async function deletePreRead(id: string) {
-  const db = await openDatabase();
-  const tx = db.transaction(["prereads", "prereadFiles"], "readwrite");
-  tx.objectStore("prereads").delete(id);
-  tx.objectStore("prereadFiles").delete(id);
-  await new Promise<void>((resolve, reject) => {
-    tx.oncomplete = () => resolve();
-    tx.onerror = () => reject(tx.error);
-  });
-  db.close();
-  await attemptCloudSync(() => removeCloudRecord("fcom_prereads", id, "prereads"));
-}
-
 async function cacheCloudLibrary(library: CloudLibrary) {
   const db = await openDatabase();
-  const tx = db.transaction(["lectures", "prereads"], "readwrite");
+  const tx = db.transaction("lectures", "readwrite");
   const lectureStore = tx.objectStore("lectures");
-  const preReadStore = tx.objectStore("prereads");
   library.lectures.forEach((lecture) => lectureStore.put(lecture));
-  library.preReads.forEach((preRead) => preReadStore.put(preRead));
   await new Promise<void>((resolve, reject) => {
     tx.oncomplete = () => resolve();
     tx.onerror = () => reject(tx.error);
@@ -488,28 +316,47 @@ async function cacheCloudLibrary(library: CloudLibrary) {
 }
 
 export async function loadCloudLibrary(): Promise<CloudLibrary> {
-  if (!supabase || !cloudUserId) return { lectures: [], preReads: [] };
+  if (!supabase || !cloudUserId) return { lectures: [] };
   const [lectureResult, preReadResult] = await Promise.all([
-    supabase.from("fcom_lectures").select("data").eq("user_id", cloudUserId).order("updated_at", { ascending: false }),
-    supabase.from("fcom_prereads").select("data").eq("user_id", cloudUserId).order("updated_at", { ascending: false }),
+    supabase.from("fcom_lectures").select("id,data").eq("user_id", cloudUserId).order("updated_at", { ascending: false }),
+    supabase.from("fcom_prereads").select("id,data").eq("user_id", cloudUserId),
   ]);
   const error = lectureResult.error ?? preReadResult.error;
   if (error) throw error;
-  const lectures = (lectureResult.data ?? [])
+  const lectureRows = lectureResult.data ?? [];
+  const lectures = lectureRows
     .map((row) => normalizeLecture((row as { data?: unknown }).data))
     .filter((lecture): lecture is Lecture => lecture !== null);
-  const preReads = (preReadResult.data ?? [])
-    .map((row) => normalizePreRead((row as { data?: unknown }).data))
-    .filter((preRead): preRead is PreRead => preRead !== null);
-  const library = { lectures, preReads };
+  const dirtyLectures = lectureRows.filter((row) => {
+    const data = (row as { data?: unknown }).data;
+    return Boolean(data && typeof data === "object" && Array.isArray((data as Record<string, unknown>).questions) && (data as Record<string, unknown>).questions instanceof Array && ((data as Record<string, unknown>).questions as unknown[]).length);
+  });
+  const dirtyPreReads = (preReadResult.data ?? []).flatMap((row) => {
+    const record = row as { id?: string; data?: unknown };
+    if (!record.id || !record.data || typeof record.data !== "object") return [];
+    const data = record.data as Record<string, unknown>;
+    if (!Array.isArray(data.questions) || !data.questions.length) return [];
+    const cleaned = { ...data };
+    delete cleaned.questions;
+    return [{ user_id: cloudUserId, id: record.id, data: cleaned, updated_at: new Date().toISOString() }];
+  });
+  await Promise.all([
+    ...dirtyLectures.map((row) => {
+      const id = (row as { id: string }).id;
+      const lecture = lectures.find((item) => item.id === id);
+      return lecture ? upsertCloudLecture(lecture) : Promise.resolve();
+    }),
+    dirtyPreReads.length ? supabase.from("fcom_prereads").upsert(dirtyPreReads, { onConflict: "user_id,id" }).then(({ error }) => { if (error) throw error; }) : Promise.resolve(),
+  ]);
+  const library = { lectures };
   await cacheCloudLibrary(library);
   return library;
 }
 
 export async function migrateLocalLibraryToCloud(onProgress?: (progress: MigrationProgress) => void) {
   if (!supabase || !cloudUserId) throw new Error("Sign in before migrating this device.");
-  const [lectures, preReads] = await Promise.all([loadLectures(), loadPreReads()]);
-  const total = lectures.length + preReads.length;
+  const lectures = await loadLectures();
+  const total = lectures.length;
   let completed = 0;
   const report = (label: string) => {
     completed += 1;
@@ -520,12 +367,7 @@ export async function migrateLocalLibraryToCloud(onProgress?: (progress: Migrati
     await upsertCloudLecture(lecture, file ?? undefined);
     report(lecture.title);
   }
-  for (const preRead of preReads) {
-    const file = await getLocalPreReadFile(preRead.id);
-    await upsertCloudPreRead(preRead, file ?? undefined);
-    report(preRead.title);
-  }
   const library = await loadCloudLibrary();
   announceCloudStatus("fcom-cloud-sync-ok", "Device library migrated");
-  return { library, counts: { lectures: lectures.length, preReads: preReads.length } };
+  return { library, counts: { lectures: lectures.length } };
 }

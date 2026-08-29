@@ -940,6 +940,28 @@ button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-vis
 /* Question inventory: spreadsheet-like bank shared with quiz assembly */
 .question-bank-shell{--curriculum-sidebar-width:126px}
 .question-bank-shell .live-sidebar-shell{grid-template-columns:126px}
+
+/* Simplified application shell: lecture archive + SLO workspace. */
+.shell.simplified-shell{display:block;min-height:100vh;background:#080808}
+.simplified-shell .workspace{min-height:100vh;background:var(--cream)}
+.simplified-topbar{position:sticky;z-index:40;top:0;display:grid;grid-template-columns:auto auto minmax(240px,560px) auto auto;gap:20px;height:70px;padding:0 28px;background:#f7f7f5;border-bottom:1px solid #d6d8da}
+.topbar-wordmark{border:0;background:transparent;padding:0;color:#20242a;font-size:15px;font-weight:750;letter-spacing:-.25px;cursor:pointer}
+.workspace-nav{display:flex;align-items:stretch;gap:3px;height:100%}
+.workspace-nav button{position:relative;border:0;background:transparent;padding:0 15px;color:#68707a;font-size:12px;font-weight:650;cursor:pointer}
+.workspace-nav button:hover{color:#20242a}.workspace-nav button.active{color:#171b20}
+.workspace-nav button.active:after{content:"";position:absolute;right:12px;bottom:0;left:12px;height:2px;background:#22272d}
+.simplified-topbar .global-search{width:auto;max-width:none}
+.topbar-account{display:flex;align-items:center;gap:6px;white-space:nowrap}
+.topbar-account span{max-width:150px;overflow:hidden;color:#777f88;font-size:9px;text-overflow:ellipsis}
+.topbar-account button{border:1px solid #cbd0d5;border-radius:3px;background:#fff;padding:6px 8px;color:#424951;font-size:9px;cursor:pointer}
+.topbar-account button:hover{border-color:#969da5;color:#171b20}
+.topbar-account button:disabled{opacity:.55;cursor:default}
+.lecture-gallery-course-filter{display:grid;grid-template-columns:auto auto;align-items:center;gap:10px;color:#999}
+.lecture-gallery-course-filter span{font-size:9px;font-weight:650;letter-spacing:1px;text-transform:uppercase}
+.lecture-gallery-course-filter select{min-width:150px;border:1px solid #454545;border-radius:2px;background:#111;color:#f1f1ef;padding:8px 30px 8px 10px;font:inherit;font-size:11px}
+.viewer-delete-lecture{color:#8e5555!important}
+@media(max-width:1050px){.simplified-topbar{grid-template-columns:auto auto minmax(180px,1fr) auto}.topbar-account span{display:none}.topbar-account button:nth-of-type(1),.topbar-account button:nth-of-type(2){display:none}}
+@media(max-width:720px){.simplified-topbar{grid-template-columns:auto 1fr auto;height:auto;min-height:64px;padding:10px 14px;gap:10px}.workspace-nav{grid-column:2}.simplified-topbar .global-search{grid-row:2;grid-column:1/-1}.topbar-account{display:none}.lecture-gallery-course-filter{grid-template-columns:1fr;gap:5px;width:100%}.lecture-gallery-course-filter select{width:100%}}
 .question-bank-shell .live-curriculum-sidebar{display:none}
 .question-bank-page{width:100%;max-width:none;padding:28px 30px 60px}
 .question-bank-page>.curriculum-page-toolbar{margin-bottom:14px}

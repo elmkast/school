@@ -1,7 +1,7 @@
-import type { Lecture, PreRead } from "./lecture-store";
+import type { Lecture } from "./lecture-store";
 import { lectureWeekValue } from "./curriculum";
 
-export type SearchKind = "lecture" | "slo" | "slide" | "preread";
+export type SearchKind = "lecture" | "slo" | "slide";
 
 export type LectureSearchResult = {
   kind: "lecture" | "slo" | "slide";
@@ -13,16 +13,7 @@ export type LectureSearchResult = {
   sloIndex?: number;
 };
 
-export type PreReadSearchResult = {
-  kind: "preread";
-  preRead: PreRead;
-  title: string;
-  text: string;
-  score: number;
-  page?: number;
-};
-
-export type SearchResult = LectureSearchResult | PreReadSearchResult;
+export type SearchResult = LectureSearchResult;
 
 export function searchMatchScore(needle: string, title: string, body: string) {
   const normalizedTitle = title.toLowerCase();
@@ -40,9 +31,9 @@ export function searchMatchScore(needle: string, title: string, body: string) {
 }
 
 export function searchResultWeek(result: SearchResult) {
-  return result.kind === "preread" ? Number.POSITIVE_INFINITY : lectureWeekValue(result.lecture.week) ?? Number.POSITIVE_INFINITY;
+  return lectureWeekValue(result.lecture.week) ?? Number.POSITIVE_INFINITY;
 }
 
 export function searchResultCollectionTitle(result: SearchResult) {
-  return result.kind === "preread" ? result.preRead.title : result.lecture.title;
+  return result.lecture.title;
 }

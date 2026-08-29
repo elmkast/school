@@ -36,7 +36,7 @@ function LectureFirstPage({ lecture }: { lecture: Lecture }) {
   useEffect(() => {
     if (!visible || thumbnail || !canvasRef.current) return;
     let cancelled = false;
-    let document: { destroy(): Promise<void> } | null = null;
+    let document: unknown = null;
     setStatus("loading");
     void (async () => {
       const file = await getLectureFile(lecture.id);
@@ -61,7 +61,7 @@ function LectureFirstPage({ lecture }: { lecture: Lecture }) {
         setThumbnail(rendered);
         setStatus("ready");
       }
-    })().catch(() => { if (!cancelled) setStatus("missing"); }).finally(() => { void document?.destroy(); });
+    })().catch(() => { if (!cancelled) setStatus("missing"); }).finally(() => { void (document as { destroy?(): Promise<void> } | null)?.destroy?.(); });
     return () => { cancelled = true; };
   }, [lecture.id, thumbnail, visible]);
 
@@ -72,9 +72,11 @@ function LectureFirstPage({ lecture }: { lecture: Lecture }) {
 }
 
 export function LectureGallery({ lectures, onOpen }: { lectures: Lecture[]; onOpen(lecture: Lecture): void }) {
+  const courses = useMemo(() => Array.from(new Set(lectures.map((lecture) => lecture.course))).sort(compareText), [lectures]);
+  const [courseFilter, setCourseFilter] = useState("all");
   const groups = useMemo(() => {
     const grouped = new Map<string, GalleryGroup>();
-    lectures.forEach((lecture) => {
+    lectures.filter((lecture) => courseFilter === "all" || lecture.course === courseFilter).forEach((lecture) => {
       const key = `${lecture.academicYear}::${lecture.course}::${lecture.week ?? "unassigned"}`;
       const existing = grouped.get(key);
       if (existing) existing.lectures.push(lecture);
@@ -83,10 +85,10 @@ export function LectureGallery({ lectures, onOpen }: { lectures: Lecture[]; onOp
     return Array.from(grouped.values())
       .sort((a, b) => compareText(b.academicYear, a.academicYear) || compareText(a.course, b.course) || compareNewestWeeks(a.week, b.week))
       .map((group) => ({ ...group, lectures: [...group.lectures].sort((a, b) => compareText(a.title, b.title)) }));
-  }, [lectures]);
+  }, [courseFilter, lectures]);
 
   return <div className="lecture-gallery-prototype lecture-gallery-live">
-    <header><div><small>FCOM.LIB</small><strong>Lecture archive</strong></div><p>First-page previews · grouped by course and curriculum week</p></header>
+    <header><div><small>FCOM.LIB</small><strong>Lecture archive</strong></div><label className="lecture-gallery-course-filter"><span>Course</span><select aria-label="Filter lecture archive by course" value={courseFilter} onChange={(event) => setCourseFilter(event.target.value)}><option value="all">All courses</option>{courses.map((course) => <option key={course} value={course}>{course}</option>)}</select></label></header>
     {groups.length > 0 ? <div className="lecture-gallery-groups">{groups.map((group) => <section key={group.key}>
       <div className="lecture-gallery-heading"><h3>{group.course}</h3><span>{lectureWeekLabel(group.week)}</span><small>{group.academicYear}</small></div>
       <div className="lecture-gallery-grid">{group.lectures.map((lecture) => <button type="button" className="lecture-gallery-item" key={lecture.id} aria-label={`Open ${lecture.title}`} onClick={() => onOpen(lecture)}>
