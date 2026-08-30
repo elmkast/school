@@ -583,6 +583,7 @@ button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-vis
 .cloud-auth-submit:hover { background:#0f1215; }
 .cloud-auth-submit:disabled { cursor:default; opacity:.55; }
 .cloud-auth-switch { width:100%; margin-top:17px; border:0; background:none; color:#506878; cursor:pointer; font-size:11px; }
+.cloud-auth-links{margin-top:17px;display:flex;justify-content:center;gap:16px}.cloud-auth-links button{border:0;background:none;color:#506878;padding:0;cursor:pointer;font-size:11px}.cloud-auth-links button+button{padding-left:16px;border-left:1px solid #ccd2d6}
 .cloud-auth-message { margin:0; border-left:3px solid #738c9b; background:#eef2f4; padding:9px 10px; color:#3f4b53; font-size:11px; line-height:1.45; }
 .cloud-loading { padding:38px 0 8px; color:#656d74; font-size:13px; }
 .cloud-account { padding:13px 2px 0; display:grid; gap:10px; }

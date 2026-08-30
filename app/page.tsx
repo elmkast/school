@@ -87,8 +87,10 @@ export default function Home() {
   const [authMode, setAuthMode] = useState<"signin" | "signup">("signin");
   const [authEmail, setAuthEmail] = useState("");
   const [authPassword, setAuthPassword] = useState("");
+  const [authPasswordConfirm, setAuthPasswordConfirm] = useState("");
   const [authBusy, setAuthBusy] = useState(false);
   const [authMessage, setAuthMessage] = useState("");
+  const [passwordRecovery, setPasswordRecovery] = useState(() => typeof window !== "undefined" && (window.location.hash.includes("type=recovery") || window.location.search.includes("type=recovery")));
   const [migrationRunning, setMigrationRunning] = useState(false);
   const [migrationProgress, setMigrationProgress] = useState<MigrationProgress | null>(null);
   const [searchMode, setSearchMode] = useState<"catalog" | "slides">("catalog");
@@ -138,7 +140,7 @@ export default function Home() {
     if (!supabase) return;
     let active = true;
     void supabase.auth.getSession().then(({ data, error }) => { if (!active) return; if (error) setAuthMessage(error.message); setCloudSession(data.session); setCloudUser(data.session?.user.id ?? null); setAuthReady(true); });
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => { if (!active) return; setCloudSession(session); setCloudUser(session?.user.id ?? null); setAuthReady(true); if (!session) setCloudReady(true); });
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => { if (!active) return; if (event === "PASSWORD_RECOVERY") setPasswordRecovery(true); setCloudSession(session); setCloudUser(session?.user.id ?? null); setAuthReady(true); if (!session) setCloudReady(true); });
     return () => { active = false; subscription.unsubscribe(); };
   }, []);
 
@@ -380,6 +382,23 @@ export default function Home() {
     try { if (authMode === "signin") { const { error } = await supabase.auth.signInWithPassword({ email: authEmail.trim(), password: authPassword }); if (error) throw error; } else { const { data, error } = await supabase.auth.signUp({ email: authEmail.trim(), password: authPassword, options: { emailRedirectTo: window.location.origin } }); if (error) throw error; if (!data.session) setAuthMessage("Account created. Check your email to confirm it, then sign in."); } }
     catch (error) { setAuthMessage(error instanceof Error ? error.message : "Could not sign in."); } finally { setAuthBusy(false); }
   }
+  async function sendPasswordReset() {
+    if (!supabase || authBusy) return;
+    if (!authEmail.trim()) { setAuthMessage("Enter your account email first."); return; }
+    setAuthBusy(true); setAuthMessage("");
+    try { const { error } = await supabase.auth.resetPasswordForEmail(authEmail.trim(), { redirectTo:window.location.origin }); if (error) throw error; setAuthMessage("Password reset email sent. Open the link on this device."); }
+    catch (error) { setAuthMessage(error instanceof Error ? error.message : "Could not send the reset email."); }
+    finally { setAuthBusy(false); }
+  }
+  async function submitRecoveredPassword(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault(); if (!supabase || authBusy) return;
+    if (authPassword.length < 6) { setAuthMessage("Use at least 6 characters."); return; }
+    if (authPassword !== authPasswordConfirm) { setAuthMessage("The passwords do not match."); return; }
+    setAuthBusy(true); setAuthMessage("");
+    try { const { error } = await supabase.auth.updateUser({ password:authPassword }); if (error) throw error; setPasswordRecovery(false); setAuthPassword(""); setAuthPasswordConfirm(""); window.history.replaceState({}, document.title, "/"); setNotice("Password updated."); }
+    catch (error) { setAuthMessage(error instanceof Error ? error.message : "Could not update the password."); }
+    finally { setAuthBusy(false); }
+  }
   async function migrateThisDevice() { if (migrationRunning) return; setMigrationRunning(true); setMigrationProgress(null); try { const result = await migrateLocalLibraryToCloud(setMigrationProgress); setLectures(result.library.lectures); setCloudHasData(true); setNotice(`Cloud migration complete: ${result.counts.lectures} lectures.`); } catch (error) { setNotice(`Migration stopped: ${readableError(error)} Your local library is unchanged.`); } finally { setMigrationRunning(false); } }
   async function signOutCloud() { await supabase?.auth.signOut(); setCloudSession(null); setCloudUser(null); setCloudHasData(false); }
 
@@ -389,9 +408,11 @@ export default function Home() {
   const activeTocPage = viewerLecture?.toc.reduce((active, item) => item.page <= selectedPage ? item.page : active, viewerLecture.toc[0]?.page ?? 0) ?? 0;
   const currentSlideIsMarked = viewerMarkedSlides.includes(selectedPage);
   const viewerPageInk = viewerLecture?.markups?.[selectedPage] ?? [];
+  const recoveryRequested = passwordRecovery || (typeof window !== "undefined" && (window.location.pathname === "/recover" || window.location.hash.includes("type=recovery") || window.location.search.includes("type=recovery")));
 
+  if (recoveryRequested) return <main className="cloud-gate"><section className="cloud-auth-card"><strong className="cloud-wordmark">FCOM.lib</strong><div className="cloud-auth-heading"><small>ACCOUNT RECOVERY</small><h1>Choose a new password</h1><p>This changes the password for your FCOM.lib account.</p></div><form onSubmit={submitRecoveredPassword}><label><span>New password</span><input type="password" minLength={6} autoComplete="new-password" value={authPassword} onChange={(event) => setAuthPassword(event.target.value)} required /></label><label><span>Confirm new password</span><input type="password" minLength={6} autoComplete="new-password" value={authPasswordConfirm} onChange={(event) => setAuthPasswordConfirm(event.target.value)} required /></label>{authMessage && <p className="cloud-auth-message" role="status">{authMessage}</p>}<button className="cloud-auth-submit" type="submit" disabled={authBusy}>{authBusy ? "Updating…" : "Update password"}</button></form></section></main>;
   if (cloudConfigured && (!authReady || (cloudSession && !cloudReady))) return <main className="cloud-gate"><section className="cloud-auth-card"><strong className="cloud-wordmark">FCOM.lib</strong><div className="cloud-loading" role="status">Opening your library…</div></section></main>;
-  if (cloudConfigured && !cloudSession) return <main className="cloud-gate"><section className="cloud-auth-card"><strong className="cloud-wordmark">FCOM.lib</strong><div className="cloud-auth-heading"><small>PRIVATE CURRICULUM LIBRARY</small><h1>{authMode === "signin" ? "Sign in" : "Create your account"}</h1><p>Your lectures, annotations, and SLOs stay private to your account.</p></div><form onSubmit={submitCloudAuth}><label><span>Email</span><input type="email" autoComplete="email" value={authEmail} onChange={(event) => setAuthEmail(event.target.value)} required /></label><label><span>Password</span><input type="password" minLength={6} autoComplete={authMode === "signin" ? "current-password" : "new-password"} value={authPassword} onChange={(event) => setAuthPassword(event.target.value)} required /></label>{authMessage && <p className="cloud-auth-message" role="status">{authMessage}</p>}<button className="cloud-auth-submit" type="submit" disabled={authBusy}>{authBusy ? "Working…" : authMode === "signin" ? "Sign in" : "Create account"}</button></form><button className="cloud-auth-switch" type="button" onClick={() => { setAuthMode((current) => current === "signin" ? "signup" : "signin"); setAuthMessage(""); }}>{authMode === "signin" ? "New to FCOM.lib? Create an account" : "Already have an account? Sign in"}</button></section></main>;
+  if (cloudConfigured && !cloudSession) return <main className="cloud-gate"><section className="cloud-auth-card"><strong className="cloud-wordmark">FCOM.lib</strong><div className="cloud-auth-heading"><small>PRIVATE CURRICULUM LIBRARY</small><h1>{authMode === "signin" ? "Sign in" : "Create your account"}</h1><p>Your lectures, annotations, and SLOs stay private to your account.</p></div><form onSubmit={submitCloudAuth}><label><span>Email</span><input type="email" autoComplete="email" value={authEmail} onChange={(event) => setAuthEmail(event.target.value)} required /></label><label><span>Password</span><input type="password" minLength={6} autoComplete={authMode === "signin" ? "current-password" : "new-password"} value={authPassword} onChange={(event) => setAuthPassword(event.target.value)} required /></label>{authMessage && <p className="cloud-auth-message" role="status">{authMessage}</p>}<button className="cloud-auth-submit" type="submit" disabled={authBusy}>{authBusy ? "Working…" : authMode === "signin" ? "Sign in" : "Create account"}</button></form><div className="cloud-auth-links">{authMode === "signin" && <button type="button" onClick={() => void sendPasswordReset()}>Forgot password?</button>}<button type="button" onClick={() => { setAuthMode((current) => current === "signin" ? "signup" : "signin"); setAuthMessage(""); }}>{authMode === "signin" ? "Create account" : "Sign in"}</button></div></section></main>;
 
   return <main className="shell simplified-shell"><section className="workspace">
     <header className="topbar simplified-topbar"><button className="topbar-wordmark" onClick={() => setView("lectures")}>FCOM.lib</button><nav className="workspace-nav" aria-label="Primary navigation"><button className={view === "lectures" ? "active" : ""} onClick={() => setView("lectures")}>Lectures</button><button className={view === "slos" ? "active" : ""} onClick={() => setView("slos")}>SLOs</button></nav><label className="global-search"><AppIcon name="search"/><input aria-label="Search the curriculum" value={query} onChange={(event) => { setQuery(event.target.value); if (event.target.value) setView("search"); }}/></label><button className="upload-button" onClick={() => { setUploadReviewOpen(true); if (!uploadQueue.length) fileInput.current?.click(); }}><AppIcon name="upload"/>Add lectures</button><input ref={fileInput} type="file" accept="application/pdf" multiple hidden onChange={(event) => { if (event.target.files?.length) enqueueFiles(event.target.files); event.target.value = ""; }}/><div className="topbar-account"><span>{cloudSession?.user.email}</span><button disabled={migrationRunning} onClick={() => void migrateThisDevice()}>{migrationRunning ? "Syncing…" : "Sync"}</button><button onClick={downloadDiagnostics}>Diagnostics</button><button onClick={() => void signOutCloud()}>Sign out</button></div></header>
