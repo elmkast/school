@@ -1,6 +1,7 @@
 "use client";
 
 import { PdfControlBarProposals } from "./PdfControlBarProposals";
+import { IpadAnnotationPrototype } from "./IpadAnnotationPrototype";
 
 export function ComponentReview() {
   return <main className="component-review-page upload-review-sheet">
@@ -9,5 +10,6 @@ export function ComponentReview() {
       <button type="button" onClick={() => { window.location.href = "/"; }}>Return to FCOM.lib</button>
     </header>
     <PdfControlBarProposals />
+    <IpadAnnotationPrototype />
   </main>;
 }
