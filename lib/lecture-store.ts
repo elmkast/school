@@ -5,6 +5,7 @@ export type Slide = { page: number; text: string; heading: string };
 export type InkPoint = { x: number; y: number };
 export type InkStroke = { id: string; points: InkPoint[] };
 export type SloStrength = "weak" | "okay" | "strong";
+export type LectureTocItem = { title:string; page:number };
 
 export type Lecture = {
   id: string;
@@ -17,6 +18,7 @@ export type Lecture = {
   pages: number;
   slos: string[];
   outline: string[];
+  toc: LectureTocItem[];
   summary: string;
   slides: Slide[];
   notes: Record<number, string>;
@@ -147,6 +149,21 @@ function normalizeSloIndexes(value: unknown) {
     : [];
 }
 
+function normalizeToc(value: unknown, pages: number): LectureTocItem[] {
+  if (!Array.isArray(value)) return [];
+  const seen = new Set<string>();
+  return value.flatMap((item) => {
+    if (!item || typeof item !== "object" || Array.isArray(item)) return [];
+    const record = item as Record<string, unknown>;
+    const title = textValue(record.title);
+    const page = typeof record.page === "number" && Number.isInteger(record.page) ? record.page : Number(record.page);
+    const key = `${page}:${title.toLowerCase()}`;
+    if (!title || !Number.isInteger(page) || page < 1 || page > pages || seen.has(key)) return [];
+    seen.add(key);
+    return [{ title, page }];
+  }).sort((a, b) => a.page - b.page);
+}
+
 export function normalizeLecture(value: unknown): Lecture | null {
   if (!value || typeof value !== "object") return null;
   const lecture = value as Record<string, unknown>;
@@ -160,6 +177,7 @@ export function normalizeLecture(value: unknown): Lecture | null {
     : [];
   const flaggedSLOs = normalizeSloIndexes(lecture.flaggedSLOs);
   const studySLOs = normalizeSloIndexes(lecture.studySLOs);
+  const pages = Math.max(requestedPages, detectedPages, 1);
   return {
     id,
     title: textValue(lecture.title, "Untitled lecture"),
@@ -168,9 +186,10 @@ export function normalizeLecture(value: unknown): Lecture | null {
     course: textValue(lecture.course, "Unsorted"),
     academicYear: textValue(lecture.academicYear, "2026-2027"),
     favorite: Boolean(lecture.favorite),
-    pages: Math.max(requestedPages, detectedPages, 1),
+    pages,
     slos: textList(lecture.slos),
     outline: textList(lecture.outline),
+    toc: normalizeToc(lecture.toc, pages),
     summary: textValue(lecture.summary, "No lecture summary is available yet."),
     slides,
     notes: normalizeNotes(lecture.notes),

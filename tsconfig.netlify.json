@@ -1,6 +1,6 @@
 {
   "extends": "./tsconfig.json",
-  "files": ["vite-env.d.ts", "app/page.tsx", "src/main.tsx", "netlify/functions/analyze.mts", "netlify/functions/chat.mts", "netlify/functions/reparse-slos.mts", "vite.netlify.config.ts"],
+  "files": ["vite-env.d.ts", "app/page.tsx", "src/main.tsx", "netlify/functions/analyze.mts", "netlify/functions/reparse-slos.mts", "netlify/functions/toc.mts", "vite.netlify.config.ts"],
   "include": [],
   "exclude": ["node_modules", "dist", "dist-netlify", "worker", "db", "build", "examples"]
 }

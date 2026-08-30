@@ -54,6 +54,7 @@ function mergeAiLectureBrief(base: Lecture, response: unknown, sourceSlides: Sli
     if (values.length) accepted[field] = values;
     else rejectedFields.push(field);
   });
+  if (Array.isArray(brief.toc)) accepted.toc = brief.toc;
   const aiSlidesByPage = new Map<number, Record<string, unknown>>();
   (Array.isArray(brief.slides) ? brief.slides : []).forEach((value) => {
     if (!value || typeof value !== "object" || Array.isArray(value)) return;
@@ -65,15 +66,13 @@ function mergeAiLectureBrief(base: Lecture, response: unknown, sourceSlides: Sli
     if (!candidate) return source;
     return { page: source.page, heading: typeof candidate.heading === "string" && candidate.heading.trim() ? candidate.heading : source.heading, text: typeof candidate.text === "string" && candidate.text.trim() ? candidate.text : source.text };
   });
-  const normalized = normalizeLecture({ ...base, ...accepted, slides, notes: {}, markups: {}, markedSlides: [], flaggedSLOs: [], sloStrengths: {}, studySLOs: [], academicYear: destination.academicYear, course: destination.course ?? accepted.course ?? base.course, lecturer: destination.lecturer ?? accepted.lecturer ?? base.lecturer, favorite: false });
+  const normalized = normalizeLecture({ ...base, ...accepted, slides, notes: {}, markups: {}, markedSlides: [], flaggedSLOs: [], sloStrengths: {}, studySLOs: [], toc:accepted.toc ?? [], academicYear: destination.academicYear, course: destination.course ?? accepted.course ?? base.course, lecturer: destination.lecturer ?? accepted.lecturer ?? base.lecturer, favorite: false });
   return { lecture: normalized ?? base, rejectedFields };
 }
 
 type View = "lectures" | "search" | "slos";
 type PendingUpload = { id: string; file: File; destination: ImportDestination };
-type LunaChatMessage = { id: string; role: "user" | "assistant"; text: string; page: number };
-
-const aiEndpoint = (action: "analyze" | "chat" | "reparse-slos") => `/.netlify/functions/${action}`;
+const aiEndpoint = (action: "analyze" | "reparse-slos" | "toc") => `/.netlify/functions/${action}`;
 
 export default function Home() {
   const [lectures, setLectures] = useState<Lecture[]>(seedLectures);
@@ -117,14 +116,10 @@ export default function Home() {
   const [selectedPage, setSelectedPage] = useState(1);
   const [viewerFile, setViewerFile] = useState<Blob | null>(null);
   const [viewerFileLectureId, setViewerFileLectureId] = useState("");
-  const [chatMessages, setChatMessages] = useState<LunaChatMessage[]>([]);
-  const [chatDraft, setChatDraft] = useState("");
-  const [chatLoading, setChatLoading] = useState(false);
-  const [noteDraft, setNoteDraft] = useState("");
-  const [noteSaveStatus, setNoteSaveStatus] = useState<"saved" | "saving">("saved");
-  const [viewerContext, setViewerContext] = useState<"marks" | "slos" | null>(null);
-  const [pdfPaneHidden, setPdfPaneHidden] = useState(false);
-  const [lunaPaneHidden, setLunaPaneHidden] = useState(false);
+  const [pdfZoom, setPdfZoom] = useState(1);
+  const [tocOpen, setTocOpen] = useState(true);
+  const [tocLoading, setTocLoading] = useState(false);
+  const [tocError, setTocError] = useState("");
   const [penEnabled, setPenEnabled] = useState(false);
   const fileInput = useRef<HTMLInputElement>(null);
   const pendingUploads = useRef<PendingUpload[]>([]);
@@ -195,7 +190,7 @@ export default function Home() {
   useEffect(() => {
     if (!viewerLecture) return;
     const handleKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") { void saveCurrentNote(); setViewerLectureId(""); return; }
+      if (event.key === "Escape") { setViewerLectureId(""); return; }
       const target = event.target;
       if (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement || (target instanceof HTMLElement && target.isContentEditable)) return;
       const key = event.key.toLowerCase();
@@ -204,23 +199,34 @@ export default function Home() {
     window.addEventListener("keydown", handleKey); return () => window.removeEventListener("keydown", handleKey);
   // The keyboard handler intentionally follows the current viewer snapshot.
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [viewerLecture, selectedPage, noteDraft]);
+  }, [viewerLecture, selectedPage]);
 
-  useEffect(() => {
-    if (!viewerLecture || (viewerLecture.notes?.[selectedPage] ?? "") === noteDraft) return;
-    const lecture = viewerLecture; const page = selectedPage; const note = noteDraft;
-    const timer = window.setTimeout(() => { const updated = { ...lecture, notes: { ...(lecture.notes ?? {}), [page]: note } }; setLectures((current) => current.map((item) => item.id === updated.id ? updated : item)); void saveLecture(updated).then(() => setNoteSaveStatus("saved")).catch((error) => setNotice(`Note autosave failed: ${readableError(error)}`)); }, 650);
-    return () => window.clearTimeout(timer);
-  }, [noteDraft, selectedPage, viewerLecture]);
+  async function generateLectureToc(lecture: Lecture) {
+    if (tocLoading) return;
+    setTocLoading(true); setTocError("");
+    try {
+      const response = await fetch(aiEndpoint("toc"), { method:"POST", headers:{ "Content-Type":"application/json" }, body:JSON.stringify({ lecture:{ title:lecture.title, pages:lecture.pages, slides:lecture.slides } }) });
+      const responseText = await response.text();
+      let data: { items?:unknown; error?:string; detail?:string } = {};
+      try { data = responseText ? JSON.parse(responseText) as typeof data : {}; } catch { if (response.ok) throw new Error("Luna returned an unreadable table of contents."); }
+      if (!response.ok) throw new Error(data.error || data.detail || "Luna could not build the table of contents.");
+      const normalized = normalizeLecture({ ...lecture, toc:data.items });
+      if (!normalized?.toc.length) throw new Error("Luna did not return a usable table of contents.");
+      setLectures((current) => current.map((item) => item.id === lecture.id ? normalized : item));
+      await saveLecture(normalized);
+    } catch (error) { setTocError(readableError(error)); }
+    finally { setTocLoading(false); }
+  }
 
   function openLecture(lecture: Lecture, page = 1) {
     const targetPage = Math.min(lecture.pages, Math.max(1, page));
-    setSelectedPage(targetPage); setViewerFile(null); setViewerFileLectureId(""); setChatMessages([]); setChatDraft(""); setViewerContext(null); setPdfPaneHidden(false); setLunaPaneHidden(false); setPenEnabled(false); setNoteDraft(lecture.notes?.[targetPage] ?? ""); setNoteSaveStatus("saved"); setViewerLectureId(lecture.id);
+    setSelectedPage(targetPage); setViewerFile(null); setViewerFileLectureId(""); setPdfZoom(1); setTocOpen(true); setTocError(""); setPenEnabled(false); setViewerLectureId(lecture.id);
+    if (!lecture.toc.length) void generateLectureToc(lecture);
   }
 
   function selectViewerPage(page: number) {
-    if (!viewerLecture) return; void saveCurrentNote();
-    const targetPage = Math.min(viewerLecture.pages, Math.max(1, page)); setSelectedPage(targetPage); setNoteDraft(viewerLecture.notes?.[targetPage] ?? ""); setNoteSaveStatus("saved");
+    if (!viewerLecture) return;
+    const targetPage = Math.min(viewerLecture.pages, Math.max(1, page)); setSelectedPage(targetPage);
   }
 
   function openSearchResult(result: SearchResult) {
@@ -307,7 +313,7 @@ export default function Home() {
       } finally { try { pdf.cleanup(); } catch { /* PDF.js may already have released the document. */ } try { await (pdf as unknown as { destroy: () => Promise<void> }).destroy(); } catch { /* Cleanup is best effort. */ } data = new Uint8Array(0); }
       const first = slides[0]?.text ?? file.name.replace(/\.pdf$/i, "");
       const title = first.replace(/^\d+\s*/, "").split(/(?:August|September|October|November|December|January|February|March|April|May|June|July)\s+\d+/i)[0].replace(/[“”"]/g, "").trim().slice(0, 100) || file.name.replace(/\.pdf$/i, "");
-      const lecture: Lecture = { id: crypto.randomUUID(), title, lecturer: destination.lecturer ?? "Lecturer not detected", week: null, course: destination.course ?? "Unsorted", academicYear: destination.academicYear, favorite: false, pages: pageCount, slos: detectSLOs(slides), outline: [], summary: `Imported ${pageCount} slides.`, slides, notes: {}, markups: {}, markedSlides: [], flaggedSLOs: [], sloStrengths: {}, studySLOs: [], fileName: file.name, createdAt: new Date().toISOString() };
+      const lecture: Lecture = { id: crypto.randomUUID(), title, lecturer: destination.lecturer ?? "Lecturer not detected", week: null, course: destination.course ?? "Unsorted", academicYear: destination.academicYear, favorite: false, pages: pageCount, slos: detectSLOs(slides), outline: [], toc: [], summary: `Imported ${pageCount} slides.`, slides, notes: {}, markups: {}, markedSlides: [], flaggedSLOs: [], sloStrengths: {}, studySLOs: [], fileName: file.name, createdAt: new Date().toISOString() };
       onStage("analyzing"); let aiFailed = false;
       try { let remaining = 90_000; const analysisSlides = slides.flatMap((slide) => { if (remaining <= 0) return []; const text = slide.text.slice(0, remaining); remaining -= text.length; return [{ ...slide, text }]; }); const response = await fetch(aiEndpoint("analyze"), { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ lecture: { ...lecture, slides: analysisSlides } }) }); if (response.ok) Object.assign(lecture, mergeAiLectureBrief(lecture, await response.json(), slides, destination).lecture); else aiFailed = true; } catch { aiFailed = true; }
       clearUploadDiagnosticCheckpoint(); return { lecture, aiFailed };
@@ -363,16 +369,6 @@ export default function Home() {
     else setNotice(`${saved.length} added; ${failures} could not be finalized.`);
   }
 
-  async function sendChatMessage(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault(); if (!viewerLecture || chatLoading || !chatDraft.trim()) return;
-    const question = chatDraft.trim(); setChatMessages((current) => [...current, { id: crypto.randomUUID(), role: "user", text: question, page: selectedPage }]); setChatDraft(""); setChatLoading(true);
-    try { const surrounding = viewerLecture.slides.filter((item) => item.page !== selectedSlide.page && Math.abs(item.page - selectedSlide.page) <= 2); const response = await fetch(aiEndpoint("chat"), { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ question, slide: selectedSlide, surrounding, history: chatMessages.slice(-6).map(({ role, text }) => ({ role, text })) }) }); const result = await response.json() as { answer?: string; error?: string; detail?: string }; if (!response.ok || !result.answer) throw new Error(result.error || result.detail || "Luna could not answer."); setChatMessages((current) => [...current, { id: crypto.randomUUID(), role: "assistant", text: result.answer ?? "", page: selectedPage }]); }
-    catch (error) { setNotice(error instanceof Error ? error.message : "Luna could not answer."); } finally { setChatLoading(false); }
-  }
-
-  async function saveCurrentNote() {
-    if (!viewerLecture || (viewerLecture.notes?.[selectedPage] ?? "") === noteDraft) return; setNoteSaveStatus("saving"); const updated = { ...viewerLecture, notes: { ...(viewerLecture.notes ?? {}), [selectedPage]: noteDraft } }; setLectures((current) => current.map((lecture) => lecture.id === updated.id ? updated : lecture)); try { await saveLecture(updated); setNoteSaveStatus("saved"); } catch (error) { setNotice(`Note autosave failed: ${readableError(error)}`); }
-  }
   async function saveCurrentInk(strokes: InkStroke[]) { if (!viewerLecture) return; const markups = { ...(viewerLecture.markups ?? {}) }; if (strokes.length) markups[selectedPage] = strokes; else delete markups[selectedPage]; const updated = { ...viewerLecture, markups }; setLectures((current) => current.map((lecture) => lecture.id === updated.id ? updated : lecture)); await saveLecture(updated); }
   async function toggleCurrentSlideMark() { if (!viewerLecture) return; const current = viewerLecture.markedSlides ?? []; const markedSlides = current.includes(selectedPage) ? current.filter((page) => page !== selectedPage) : [...current, selectedPage].sort((a, b) => a - b); const updated = { ...viewerLecture, markedSlides }; setLectures((items) => items.map((lecture) => lecture.id === updated.id ? updated : lecture)); await saveLecture(updated); }
   async function removeCurrentLecture() { if (!viewerLecture || !window.confirm(`Remove “${viewerLecture.title}” and its stored PDF?`)) return; await deleteLecture(viewerLecture.id); setLectures((current) => current.filter((lecture) => lecture.id !== viewerLecture.id)); setViewerLectureId(""); setNotice("Lecture removed."); }
@@ -388,7 +384,7 @@ export default function Home() {
   const exportableLectures = lectures.filter((lecture) => lecture.slos.length > 0);
   const selectedExportCount = exportableLectures.filter((lecture) => selectedExportLectureIds.has(lecture.id)).length;
   const viewerMarkedSlides = viewerLecture?.markedSlides ?? [];
-  const viewerFlaggedSLOs = viewerLecture?.flaggedSLOs.map((index) => viewerLecture.slos[index]).filter(Boolean) ?? [];
+  const activeTocPage = viewerLecture?.toc.reduce((active, item) => item.page <= selectedPage ? item.page : active, viewerLecture.toc[0]?.page ?? 0) ?? 0;
   const currentSlideIsMarked = viewerMarkedSlides.includes(selectedPage);
   const viewerPageInk = viewerLecture?.markups?.[selectedPage] ?? [];
 
@@ -405,6 +401,16 @@ export default function Home() {
     {view === "slos" && <section className="full-page slo-page slo-live-page"><SloWorkspace lectures={visibleSloLectures} studyObjectives={selectedStudyObjectives} courses={searchCourseOptions} instructors={lecturerOptions} courseFilter={sloCourseFilter} weekFilter={sloWeekFilter} instructorFilter={sloInstructorFilter} viewFilter={sloViewFilter} onCourseFilter={setSloCourseFilter} onWeekFilter={setSloWeekFilter} onInstructorFilter={setSloInstructorFilter} onViewFilter={setSloViewFilter} onExport={openSloExport} onTogglePriority={(lectureId, index) => void toggleSloFlag(lectureId, index)} onStrengthChange={(lectureId, index, strength) => void setSloStrength(lectureId, index, strength)} onSetStudySelection={(items, selected) => void setStudySloSelection(items, selected)} onReparse={openSloReparse} onOpenLecture={openLecture}/></section>}
     {sloReparseLecture && <div className="export-backdrop"><section className="slo-reparse-modal"><header><div><small>LUNA RE-PARSE</small><h2>{sloReparseLecture.title}</h2></div><button className="icon-button" onClick={() => setSloReparseLectureId("")}><AppIcon name="x"/></button></header>{!sloReparseProposal ? <div className="reparse-request"><p>Luna will propose a corrected objective list. Nothing changes until you approve it.</p><label><span>Optional note for Luna</span><textarea value={sloReparseInstruction} onChange={(event) => setSloReparseInstruction(event.target.value)} /></label></div> : <div className="reparse-proposal"><ol>{sloReparseProposal.map((slo, index) => <li key={index}><span>{index + 1}</span><textarea value={slo} onChange={(event) => setSloReparseProposal((current) => current?.map((item, itemIndex) => itemIndex === index ? event.target.value : item) ?? null)}/><button onClick={() => setSloReparseProposal((current) => current?.filter((_, itemIndex) => itemIndex !== index) ?? null)}><AppIcon name="trash"/></button></li>)}</ol></div>}<footer>{sloReparseProposal ? <><button onClick={() => setSloReparseProposal(null)}>Back</button><button className="reparse-confirm" onClick={() => void acceptSloReparse()}>Replace SLOs</button></> : <><button onClick={() => setSloReparseLectureId("")}>Cancel</button><button className="reparse-confirm" disabled={sloReparseLoading} onClick={() => void runSloReparse()}>{sloReparseLoading ? "Luna is reviewing…" : "Re-parse SLOs"}</button></>}</footer></section></div>}
     {sloExportOpen && <div className="export-backdrop"><section className="slo-export-modal"><header><div><small>SLO EXPORT</small><h2>Choose lectures</h2></div><button className="icon-button" onClick={() => setSloExportOpen(false)}><AppIcon name="x"/></button></header><div className="export-selection-toolbar"><span><strong>{selectedExportCount}</strong> of {exportableLectures.length} selected</span><div><button onClick={() => setExportLectureSelection(exportableLectures.map((lecture) => lecture.id), true)}>Select all</button><button onClick={() => setSelectedExportLectureIds(new Set())}>Clear</button></div></div><div className="export-options"><label className="export-sort-option"><span>File format</span><select value={sloExportFormat} onChange={(event) => setSloExportFormat(event.target.value as typeof sloExportFormat)}><option value="pdf">PDF</option><option value="excel">Excel</option></select></label><label className="export-sort-option"><span>Order by</span><select value={sloExportSort} onChange={(event) => setSloExportSort(event.target.value as typeof sloExportSort)}><option value="week">Week</option><option value="lecturer">Lecturer</option></select></label>{sloExportFormat === "pdf" && <label aria-label="Include progress tracker" className="export-progress-option"><input type="checkbox" checked={includeProgressTracker} onChange={(event) => setIncludeProgressTracker(event.target.checked)}/><span><strong>Include progress tracker</strong><small>Strong / O.K. / Weak boxes</small></span></label>}</div><div className="export-tree">{academicYears.map((year) => <section className="export-year" key={year}><strong>{year}</strong>{(coursesByYear[year] ?? []).map((course) => <section className="export-course" key={course}><strong>{course}</strong>{exportableLectures.filter((lecture) => lecture.academicYear === year && lecture.course === course).map((lecture) => <label aria-label={`Select ${lecture.title}`} className="export-lecture" key={lecture.id}><input type="checkbox" checked={selectedExportLectureIds.has(lecture.id)} onChange={(event) => setExportLectureSelection([lecture.id], event.target.checked)}/><span><strong>{lecture.title}</strong><small>{lecturerFolderLabel(lecture.lecturer)} · {lectureWeekLabel(lecture.week)}</small></span></label>)}</section>)}</section>)}</div><footer><button onClick={() => setSloExportOpen(false)}>Cancel</button><button className="convert-confirm" disabled={!selectedExportCount} onClick={exportSelectedSlos}>Export</button></footer></section></div>}
-    {viewerLecture && <div className={`viewer-modal ${pdfPaneHidden ? "pdf-pane-hidden" : ""} ${lunaPaneHidden ? "luna-pane-hidden" : ""} ${pdfPaneHidden && lunaPaneHidden ? "both-panes-hidden" : ""}`} role="dialog" aria-modal="true"><section className={`viewer-stage ${pdfPaneHidden ? "pane-hidden" : ""}`}><header className="viewer-toolbar"><div><small>{viewerLecture.title}</small><strong>PDF page {selectedPage} of {viewerLecture.pages}</strong></div><div className="viewer-controls"><button disabled={selectedPage <= 1} onClick={() => selectViewerPage(selectedPage - 1)}>Previous</button><label className="page-jump"><span>Page</span><input type="number" min="1" max={viewerLecture.pages} value={selectedPage} onChange={(event) => selectViewerPage(Number(event.target.value) || 1)}/></label><button disabled={selectedPage >= viewerLecture.pages} onClick={() => selectViewerPage(selectedPage + 1)}>Next</button><button className={`pen-toggle ${penEnabled ? "active" : ""}`} onClick={() => setPenEnabled((current) => !current)}>{penEnabled ? "Pen on" : "Pen"}</button>{viewerPageInk.length > 0 && <button onClick={() => void saveCurrentInk(viewerPageInk.slice(0, -1))}>Undo ink</button>}<button className={`mark-slide ${currentSlideIsMarked ? "marked" : ""}`} onClick={() => void toggleCurrentSlideMark()}><AppIcon name="bookmark"/>{currentSlideIsMarked ? "Marked" : "Mark slide"}</button><button className="viewer-delete-lecture" onClick={() => void removeCurrentLecture()}><AppIcon name="trash"/></button></div></header><div className="viewer-slide-workspace">{viewerFile && viewerFileLectureId === viewerLecture.id ? <PdfCanvasViewer file={viewerFile} lectureId={viewerLecture.id} page={selectedPage} inkStrokes={viewerPageInk} penEnabled={penEnabled} onInkChange={saveCurrentInk}/> : <div className="slide-fallback"><h2>{selectedSlide.heading}</h2><p>{selectedSlide.text || "Loading the selected lecture…"}</p></div>}<section className="pdf-note-panel"><header><label htmlFor="pdf-slide-note">Notes · PDF page {selectedPage}</label><small>{noteSaveStatus === "saving" ? "Saving…" : "Saved automatically"}</small></header><textarea id="pdf-slide-note" value={noteDraft} onChange={(event) => { setNoteDraft(event.target.value); setNoteSaveStatus("saving"); }}/></section></div><button className="viewer-pane-hide pdf" onClick={() => setPdfPaneHidden(true)}>‹</button></section><aside className={`ai-panel ai-conversation-panel ${lunaPaneHidden ? "pane-hidden" : ""}`}><div className="ai-panel-head"><div><h2>Luna</h2><small>PDF page {selectedPage}</small></div><button className="ai-close" onClick={() => { void saveCurrentNote(); setViewerLectureId(""); }}><AppIcon name="x"/></button></div><div className="viewer-conversation"><div className="luna-chat conversation-feed">{chatMessages.map((message) => <article className={`chat-message ${message.role}`} key={message.id}><small>{message.role === "assistant" ? "Luna" : `You · page ${message.page}`}</small><p>{message.text}</p></article>)}{chatLoading && <article className="chat-message assistant pending"><small>Luna</small><p>Thinking…</p></article>}</div><div className="conversation-dock">{viewerContext && <section className="viewer-context-drawer"><header><strong>{viewerContext === "marks" ? "Marked slides" : "Flagged SLOs"}</strong><button onClick={() => setViewerContext(null)}>×</button></header>{viewerContext === "marks" ? <div className="marked-page-list">{viewerMarkedSlides.map((page) => <button key={page} onClick={() => selectViewerPage(page)}>Slide {page}</button>)}</div> : <ul>{viewerFlaggedSLOs.map((slo) => <li key={slo}>{slo}</li>)}</ul>}</section>}<form className="luna-chat-form conversation-composer" onSubmit={sendChatMessage}><textarea aria-label="Ask Luna about this slide" value={chatDraft} onChange={(event) => setChatDraft(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); event.currentTarget.form?.requestSubmit(); } }}/><button type="submit" disabled={chatLoading || !chatDraft.trim()}>↑</button></form><nav className="conversation-context-links"><button onClick={() => setViewerContext((current) => current === "marks" ? null : "marks")}><b>{viewerMarkedSlides.length}</b> Marked</button><button onClick={() => setViewerContext((current) => current === "slos" ? null : "slos")}><b>{viewerFlaggedSLOs.length}</b> Flagged SLOs</button></nav></div></div><button className="viewer-pane-hide luna" onClick={() => setLunaPaneHidden(true)}>›</button></aside>{pdfPaneHidden && <button className="viewer-pane-restore pdf" onClick={() => setPdfPaneHidden(false)}>Show PDF</button>}{lunaPaneHidden && <button className="viewer-pane-restore luna" onClick={() => setLunaPaneHidden(false)}>Show Luna</button>}{pdfPaneHidden && lunaPaneHidden && <button className="viewer-pane-restore close" onClick={() => setViewerLectureId("")}>Close lecture</button>}</div>}
+    {viewerLecture && <div className={`viewer-modal viewer-pdf-workspace ${tocOpen ? "" : "toc-hidden"}`} role="dialog" aria-modal="true">
+      {tocOpen && <aside className="viewer-toc">
+        <header><div><small>TABLE OF CONTENTS</small><h2>{viewerLecture.title}</h2></div><button aria-label="Hide table of contents" onClick={() => setTocOpen(false)}>‹</button></header>
+        <nav>{tocLoading && <p>Building contents with Luna…</p>}{tocError && <div className="viewer-toc-error"><p>{tocError}</p><button onClick={() => void generateLectureToc(viewerLecture)}>Try again</button></div>}{!tocLoading && !tocError && viewerLecture.toc.map((item) => <button className={item.page === activeTocPage ? "active" : ""} key={`${item.page}-${item.title}`} onClick={() => selectViewerPage(item.page)}><span>{item.page}</span><strong>{item.title}</strong></button>)}</nav>
+        <footer>{viewerMarkedSlides.length > 0 && <section><small>MARKED SLIDES</small><div>{viewerMarkedSlides.map((page) => <button key={page} onClick={() => selectViewerPage(page)}>{page}</button>)}</div></section>}<button disabled={tocLoading} onClick={() => void generateLectureToc(viewerLecture)}>{tocLoading ? "Luna is working…" : viewerLecture.toc.length ? "Rebuild with Luna" : "Build with Luna"}</button></footer>
+      </aside>}
+      <section className="viewer-stage">
+        <header className="viewer-toolbar"><div className="viewer-title">{!tocOpen && <button onClick={() => setTocOpen(true)}>Contents</button>}<div><small>{viewerLecture.title}</small><strong>PDF page {selectedPage} of {viewerLecture.pages}</strong></div></div><div className="viewer-controls"><button disabled={selectedPage <= 1} onClick={() => selectViewerPage(selectedPage - 1)}>Previous</button><label className="page-jump"><span>Page</span><input type="number" min="1" max={viewerLecture.pages} value={selectedPage} onChange={(event) => selectViewerPage(Number(event.target.value) || 1)}/></label><button disabled={selectedPage >= viewerLecture.pages} onClick={() => selectViewerPage(selectedPage + 1)}>Next</button><div className="viewer-zoom"><button aria-label="Zoom out" disabled={pdfZoom <= .6} onClick={() => setPdfZoom((current) => Math.max(.6, Number((current - .1).toFixed(1))))}>−</button><button onClick={() => setPdfZoom(1)}>Fit · {Math.round(pdfZoom * 100)}%</button><button aria-label="Zoom in" disabled={pdfZoom >= 2.5} onClick={() => setPdfZoom((current) => Math.min(2.5, Number((current + .1).toFixed(1))))}>+</button></div><button className={`pen-toggle ${penEnabled ? "active" : ""}`} onClick={() => setPenEnabled((current) => !current)}>{penEnabled ? "Pen on" : "Pen"}</button>{viewerPageInk.length > 0 && <button onClick={() => void saveCurrentInk(viewerPageInk.slice(0, -1))}>Undo ink</button>}<button className={`mark-slide ${currentSlideIsMarked ? "marked" : ""}`} onClick={() => void toggleCurrentSlideMark()}><AppIcon name="bookmark"/>{currentSlideIsMarked ? "Marked" : "Mark"}</button><button aria-label="Delete lecture" className="viewer-delete-lecture" onClick={() => void removeCurrentLecture()}><AppIcon name="trash"/></button><button aria-label="Close lecture" className="viewer-close" onClick={() => setViewerLectureId("")}><AppIcon name="x"/></button></div></header>
+        <div className="viewer-slide-workspace">{viewerFile && viewerFileLectureId === viewerLecture.id ? <PdfCanvasViewer file={viewerFile} lectureId={viewerLecture.id} page={selectedPage} zoom={pdfZoom} inkStrokes={viewerPageInk} penEnabled={penEnabled} onInkChange={saveCurrentInk}/> : <div className="slide-fallback"><h2>{selectedSlide.heading}</h2><p>{selectedSlide.text || "Loading the selected lecture…"}</p></div>}</div>
+      </section>
+    </div>}
   </section></main>;
 }

@@ -50,21 +50,21 @@ function loadPdfDocument(lectureId: string, file: Blob) {
   return promise;
 }
 
-export function PdfCanvasViewer({ file, lectureId, page, inkStrokes, penEnabled, onInkChange }: { file: Blob; lectureId: string; page: number; inkStrokes: InkStroke[]; penEnabled: boolean; onInkChange(strokes: InkStroke[]): void }) {
+export function PdfCanvasViewer({ file, lectureId, page, zoom, inkStrokes, penEnabled, onInkChange }: { file: Blob; lectureId: string; page: number; zoom:number; inkStrokes: InkStroke[]; penEnabled: boolean; onInkChange(strokes: InkStroke[]): void }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const inkCanvasRef = useRef<HTMLCanvasElement>(null);
   const textLayerRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const draftInkRef = useRef<InkPoint[] | null>(null);
   const [document, setDocument] = useState<PdfDocument | null>(null);
-  const [width, setWidth] = useState(800);
+  const [availableSize, setAvailableSize] = useState({ width:800, height:600 });
   const [status, setStatus] = useState("Loading PDF…");
   const [textLayerVersion, setTextLayerVersion] = useState(0);
 
   useEffect(() => {
     const element = containerRef.current;
     if (!element) return;
-    const observer = new ResizeObserver(([entry]) => setWidth(Math.max(320, entry.contentRect.width - 36)));
+    const observer = new ResizeObserver(([entry]) => setAvailableSize({ width:Math.max(320, entry.contentRect.width - 36), height:Math.max(260, entry.contentRect.height - 36) }));
     observer.observe(element);
     return () => observer.disconnect();
   }, []);
@@ -87,7 +87,8 @@ export function PdfCanvasViewer({ file, lectureId, page, inkStrokes, penEnabled,
       const pdfPage = await document.getPage(Math.min(Math.max(page, 1), document.numPages));
       if (cancelled) return;
       const base = pdfPage.getViewport({ scale: 1 });
-      const scale = Math.min(width / base.width, 2.2);
+      const fitScale = Math.min(availableSize.width / base.width, availableSize.height / base.height, 2.2);
+      const scale = fitScale * zoom;
       const viewport = pdfPage.getViewport({ scale });
       const stagingCanvas = window.document.createElement("canvas");
       const context = stagingCanvas.getContext("2d");
@@ -126,7 +127,7 @@ export function PdfCanvasViewer({ file, lectureId, page, inkStrokes, penEnabled,
       setStatus("");
     })().catch(() => { if (!cancelled) setStatus("The PDF page could not be rendered."); });
     return () => { cancelled = true; renderedTextLayer?.cancel(); };
-  }, [document, page, width]);
+  }, [availableSize, document, page, zoom]);
 
   useEffect(() => {
     if (inkCanvasRef.current) drawInkStrokes(inkCanvasRef.current, inkStrokes);
