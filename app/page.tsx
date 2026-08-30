@@ -122,6 +122,7 @@ export default function Home() {
   const [tocError, setTocError] = useState("");
   const [penEnabled, setPenEnabled] = useState(false);
   const fileInput = useRef<HTMLInputElement>(null);
+  const tocNavRef = useRef<HTMLElement>(null);
   const pendingUploads = useRef<PendingUpload[]>([]);
   const uploadRunnerActive = useRef(false);
 
@@ -220,6 +221,7 @@ export default function Home() {
 
   function openLecture(lecture: Lecture, page = 1) {
     const targetPage = Math.min(lecture.pages, Math.max(1, page));
+    if (tocNavRef.current) tocNavRef.current.scrollTop = 0;
     setSelectedPage(targetPage); setViewerFile(null); setViewerFileLectureId(""); setPdfZoom(1); setTocOpen(false); setTocError(""); setPenEnabled(false); setViewerLectureId(lecture.id);
     if (!lecture.toc.length) void generateLectureToc(lecture);
   }
@@ -406,11 +408,11 @@ export default function Home() {
         <div className="viewer-canvas-title"><strong>{viewerLecture.title}</strong><small>PDF page {selectedPage} of {viewerLecture.pages}</small></div>
         <div className="viewer-canvas-navigation"><button aria-label="Previous page" disabled={selectedPage <= 1} onClick={() => selectViewerPage(selectedPage - 1)}>←</button><span><b>{selectedPage}</b> / {viewerLecture.pages}</span><button aria-label="Next page" disabled={selectedPage >= viewerLecture.pages} onClick={() => selectViewerPage(selectedPage + 1)}>→</button></div>
         <div className="viewer-canvas-actions"><div className="viewer-zoom"><button aria-label="Zoom out" disabled={pdfZoom <= .6} onClick={() => setPdfZoom((current) => Math.max(.6, Number((current - .1).toFixed(1))))}>−</button><button onClick={() => setPdfZoom(1)}>Fit {Math.round(pdfZoom * 100)}%</button><button aria-label="Zoom in" disabled={pdfZoom >= 2.5} onClick={() => setPdfZoom((current) => Math.min(2.5, Number((current + .1).toFixed(1))))}>+</button></div><button className={tocOpen ? "active" : ""} onClick={() => setTocOpen((current) => !current)}>Contents</button><button className={penEnabled ? "active" : ""} onClick={() => setPenEnabled((current) => !current)}>Pen</button>{viewerPageInk.length > 0 && <button onClick={() => void saveCurrentInk(viewerPageInk.slice(0, -1))}>Undo</button>}<button className={currentSlideIsMarked ? "active" : ""} onClick={() => void toggleCurrentSlideMark()}>{currentSlideIsMarked ? "Marked" : "Mark"}</button><button className="viewer-delete-lecture" onClick={() => void removeCurrentLecture()}>Delete</button><button onClick={() => setViewerLectureId("")}>Close</button></div>
-        {tocOpen && <aside className="viewer-toc">
+        <aside className={`viewer-toc ${tocOpen ? "" : "closed"}`} aria-hidden={!tocOpen}>
           <header><div><small>CONTENTS</small><h2>{viewerLecture.title}</h2></div><button aria-label="Close contents" onClick={() => setTocOpen(false)}>×</button></header>
-          <nav>{tocLoading && <p>Building contents with Luna…</p>}{tocError && <div className="viewer-toc-error"><p>{tocError}</p><button onClick={() => void generateLectureToc(viewerLecture)}>Try again</button></div>}{!tocLoading && !tocError && viewerLecture.toc.map((item) => <button className={item.page === activeTocPage ? "active" : ""} key={`${item.page}-${item.title}`} onClick={() => { selectViewerPage(item.page); setTocOpen(false); }}><span>{item.page}</span><strong>{item.title}</strong></button>)}</nav>
+          <nav ref={tocNavRef}>{tocLoading && <p>Building contents with Luna…</p>}{tocError && <div className="viewer-toc-error"><p>{tocError}</p><button onClick={() => void generateLectureToc(viewerLecture)}>Try again</button></div>}{!tocLoading && !tocError && viewerLecture.toc.map((item) => <button className={item.page === activeTocPage ? "active" : ""} key={`${item.page}-${item.title}`} onClick={() => { selectViewerPage(item.page); setTocOpen(false); }}><span>{item.page}</span><strong>{item.title}</strong></button>)}</nav>
           <footer>{viewerMarkedSlides.length > 0 && <section><small>MARKED SLIDES</small><div>{viewerMarkedSlides.map((page) => <button key={page} onClick={() => { selectViewerPage(page); setTocOpen(false); }}>{page}</button>)}</div></section>}<button disabled={tocLoading} onClick={() => void generateLectureToc(viewerLecture)}>{tocLoading ? "Working…" : "Rebuild"}</button></footer>
-        </aside>}
+        </aside>
         <div className="viewer-slide-workspace">{viewerFile && viewerFileLectureId === viewerLecture.id ? <PdfCanvasViewer file={viewerFile} lectureId={viewerLecture.id} page={selectedPage} zoom={pdfZoom} inkStrokes={viewerPageInk} penEnabled={penEnabled} onInkChange={saveCurrentInk}/> : <div className="slide-fallback"><h2>{selectedSlide.heading}</h2><p>{selectedSlide.text || "Loading the selected lecture…"}</p></div>}</div>
       </section>
     </div>}
