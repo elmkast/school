@@ -88,6 +88,7 @@ export function PdfCanvasViewer({ file, lectureId, page, zoom, inkStrokes, penEn
   const draftInkRef = useRef<InkPoint[] | null>(null);
   const inkPointerIdRef = useRef<number | null>(null);
   const touchPointsRef = useRef(new Map<number, { x: number; y: number }>());
+  const singlePanRef = useRef<{ pointerId: number; x: number; y: number; scrollLeft: number; scrollTop: number } | null>(null);
   const pinchRef = useRef<{ distance: number; zoom: number; targetZoom: number; centerX: number; centerY: number; scrollLeft: number; scrollTop: number } | null>(null);
   const currentInkRef = useRef(inkStrokes);
   const eraserStartRef = useRef<InkStroke[] | null>(null);
@@ -218,7 +219,10 @@ export function PdfCanvasViewer({ file, lectureId, page, zoom, inkStrokes, penEn
     if (event.pointerType === "touch") {
       touchPointsRef.current.set(event.pointerId, { x: event.clientX, y: event.clientY });
       event.currentTarget.setPointerCapture(event.pointerId);
-      if (touchPointsRef.current.size === 2) {
+      if (touchPointsRef.current.size === 1) {
+        singlePanRef.current = { pointerId:event.pointerId, x:event.clientX, y:event.clientY, scrollLeft:containerRef.current?.scrollLeft ?? 0, scrollTop:containerRef.current?.scrollTop ?? 0 };
+      } else if (touchPointsRef.current.size === 2) {
+        singlePanRef.current = null;
         const [first, second] = Array.from(touchPointsRef.current.values());
         const scroller = containerRef.current;
         pinchRef.current = {
@@ -256,13 +260,16 @@ export function PdfCanvasViewer({ file, lectureId, page, zoom, inkStrokes, penEn
         const distance = Math.hypot(second.x - first.x, second.y - first.y);
         const centerX = (first.x + second.x) / 2;
         const centerY = (first.y + second.y) / 2;
-        const targetZoom = Math.min(2.5, Math.max(.6, pinch.zoom * distance / Math.max(1, pinch.distance)));
+        const targetZoom = Math.min(4, Math.max(.6, pinch.zoom * distance / Math.max(1, pinch.distance)));
         pinch.targetZoom = targetZoom;
         setPinchScale(targetZoom / pinch.zoom);
         if (containerRef.current) {
           containerRef.current.scrollLeft = pinch.scrollLeft + pinch.centerX - centerX;
           containerRef.current.scrollTop = pinch.scrollTop + pinch.centerY - centerY;
         }
+      } else if (touchPointsRef.current.size === 1 && singlePanRef.current?.pointerId === event.pointerId && containerRef.current) {
+        containerRef.current.scrollLeft = singlePanRef.current.scrollLeft + singlePanRef.current.x - event.clientX;
+        containerRef.current.scrollTop = singlePanRef.current.scrollTop + singlePanRef.current.y - event.clientY;
       }
       return;
     }
@@ -285,6 +292,10 @@ export function PdfCanvasViewer({ file, lectureId, page, zoom, inkStrokes, penEn
         pinchRef.current = null;
         setPinchScale(1);
         onZoomChange(Number(targetZoom.toFixed(2)));
+        const remaining = Array.from(touchPointsRef.current.entries())[0];
+        singlePanRef.current = remaining ? { pointerId:remaining[0], x:remaining[1].x, y:remaining[1].y, scrollLeft:containerRef.current?.scrollLeft ?? 0, scrollTop:containerRef.current?.scrollTop ?? 0 } : null;
+      } else if (!touchPointsRef.current.size) {
+        singlePanRef.current = null;
       }
       if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
       return;
@@ -310,7 +321,7 @@ export function PdfCanvasViewer({ file, lectureId, page, zoom, inkStrokes, penEn
 
   return <div className="pdf-canvas-wrap" ref={containerRef}>
     {status && <span className="pdf-status">{status}</span>}
-    {penEnabled && <div className="pdf-ink-toolbar" aria-label="Annotation tools">
+    {penEnabled && <div className="pdf-ink-toolbar" aria-label="Annotation tools" onPointerDown={(event) => { if (event.pointerType === "pen") event.preventDefault(); }}>
       <button className={inkMode === "pen" ? "active" : ""} onClick={() => setInkMode("pen")}>Pen</button>
       <button className={inkMode === "highlighter" ? "active" : ""} onClick={() => setInkMode("highlighter")}>Highlight</button>
       <button className={inkMode === "eraser" ? "active" : ""} onClick={() => setInkMode("eraser")}>Eraser</button>
