@@ -118,6 +118,7 @@ export default function Home() {
   const [selectedPage, setSelectedPage] = useState(1);
   const [viewerFile, setViewerFile] = useState<Blob | null>(null);
   const [viewerFileLectureId, setViewerFileLectureId] = useState("");
+  const [viewerFileError, setViewerFileError] = useState("");
   const [pdfZoom, setPdfZoom] = useState(1);
   const [tocOpen, setTocOpen] = useState(false);
   const [tocLoading, setTocLoading] = useState(false);
@@ -186,7 +187,13 @@ export default function Home() {
 
   useEffect(() => {
     let cancelled = false; if (!viewerLectureId) return;
-    void getLectureFile(viewerLectureId).then((file) => { if (!cancelled) { setViewerFile(file); setViewerFileLectureId(viewerLectureId); } }).catch(() => undefined);
+    void getLectureFile(viewerLectureId).then((file) => {
+      if (cancelled) return;
+      if (!file) { setViewerFileError("The PDF file is not available in cloud storage."); return; }
+      setViewerFile(file); setViewerFileLectureId(viewerLectureId);
+    }).catch((error: unknown) => {
+      if (!cancelled) setViewerFileError(error instanceof Error ? `The PDF could not be downloaded: ${error.message}` : "The PDF could not be downloaded.");
+    });
     return () => { cancelled = true; };
   }, [viewerLectureId]);
 
@@ -224,7 +231,7 @@ export default function Home() {
   function openLecture(lecture: Lecture, page = 1) {
     const targetPage = Math.min(lecture.pages, Math.max(1, page));
     if (tocNavRef.current) tocNavRef.current.scrollTop = 0;
-    setSelectedPage(targetPage); setViewerFile(null); setViewerFileLectureId(""); setPdfZoom(1); setTocOpen(false); setTocError(""); setPenEnabled(false); setViewerLectureId(lecture.id);
+    setSelectedPage(targetPage); setViewerFile(null); setViewerFileLectureId(""); setViewerFileError(""); setPdfZoom(1); setTocOpen(false); setTocError(""); setPenEnabled(false); setViewerLectureId(lecture.id);
     if (!lecture.toc.length) void generateLectureToc(lecture);
   }
 
@@ -434,7 +441,7 @@ export default function Home() {
           <nav ref={tocNavRef}>{tocLoading && <p>Building contents with Luna…</p>}{tocError && <div className="viewer-toc-error"><p>{tocError}</p><button onClick={() => void generateLectureToc(viewerLecture)}>Try again</button></div>}{!tocLoading && !tocError && viewerLecture.toc.map((item) => <button className={item.page === activeTocPage ? "active" : ""} key={`${item.page}-${item.title}`} onClick={() => { selectViewerPage(item.page); setTocOpen(false); }}><span>{item.page}</span><strong>{item.title}</strong></button>)}</nav>
           <footer>{viewerMarkedSlides.length > 0 && <section><small>MARKED SLIDES</small><div>{viewerMarkedSlides.map((page) => <button key={page} onClick={() => { selectViewerPage(page); setTocOpen(false); }}>{page}</button>)}</div></section>}<button disabled={tocLoading} onClick={() => void generateLectureToc(viewerLecture)}>{tocLoading ? "Working…" : "Rebuild"}</button></footer>
         </aside>
-        <div className="viewer-slide-workspace">{viewerFile && viewerFileLectureId === viewerLecture.id ? <PdfCanvasViewer file={viewerFile} lectureId={viewerLecture.id} page={selectedPage} zoom={pdfZoom} inkStrokes={viewerPageInk} penEnabled={penEnabled} onInkChange={saveCurrentInk}/> : <div className="slide-fallback"><h2>{selectedSlide.heading}</h2><p>{selectedSlide.text || "Loading the selected lecture…"}</p></div>}</div>
+        <div className="viewer-slide-workspace">{viewerFile && viewerFileLectureId === viewerLecture.id ? <PdfCanvasViewer file={viewerFile} lectureId={viewerLecture.id} page={selectedPage} zoom={pdfZoom} inkStrokes={viewerPageInk} penEnabled={penEnabled} onInkChange={saveCurrentInk}/> : <div className="slide-fallback"><h2>{viewerFileError ? "PDF unavailable" : selectedSlide.heading}</h2><p>{viewerFileError || selectedSlide.text || "Loading the selected lecture…"}</p></div>}</div>
       </section>
     </div>}
   </section></main>;

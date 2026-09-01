@@ -309,18 +309,30 @@ export async function saveLectures(lectures: Lecture[]) {
 }
 
 export async function getLectureFile(id: string): Promise<Blob | null> {
-  const local = await getLocalLectureFile(id);
+  let local: Blob | null = null;
+  try {
+    local = await getLocalLectureFile(id);
+  } catch (error) {
+    console.warn("FCOM.lib could not read the device PDF cache; using cloud storage instead.", error);
+  }
   if (local) return local;
   const cloud = await downloadCloudFile("lectures", id);
   if (!cloud) return null;
-  const db = await openDatabase();
-  const tx = db.transaction("files", "readwrite");
-  tx.objectStore("files").put({ id, file: cloud });
-  await new Promise<void>((resolve, reject) => {
-    tx.oncomplete = () => resolve();
-    tx.onerror = () => reject(tx.error);
-  });
-  db.close();
+  try {
+    const db = await openDatabase();
+    const tx = db.transaction("files", "readwrite");
+    tx.objectStore("files").put({ id, file: cloud });
+    await new Promise<void>((resolve, reject) => {
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+      tx.onabort = () => reject(tx.error);
+    });
+    db.close();
+  } catch (error) {
+    // Safari can reject large IndexedDB writes even though the cloud download
+    // succeeded. The cache is an optimization, never a requirement to view.
+    console.warn("FCOM.lib could not cache this PDF on the device.", error);
+  }
   return cloud;
 }
 

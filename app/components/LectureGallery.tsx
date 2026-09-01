@@ -6,7 +6,6 @@ import { getLectureFile, type Lecture } from "../../lib/lecture-store";
 import { pdfjs } from "../../lib/pdf-runtime";
 
 type GalleryGroup = { key: string; academicYear: string; course: string; week: number | null; lectures: Lecture[] };
-const lectureThumbnailCache = new Map<string, string>();
 
 function compareNewestWeeks(left: number | null, right: number | null) {
   if (left === null) return right === null ? 0 : 1;
@@ -17,9 +16,8 @@ function compareNewestWeeks(left: number | null, right: number | null) {
 function LectureFirstPage({ lecture }: { lecture: Lecture }) {
   const hostRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const [thumbnail, setThumbnail] = useState(() => lectureThumbnailCache.get(lecture.id) ?? "");
-  const [visible, setVisible] = useState(Boolean(thumbnail));
-  const [status, setStatus] = useState<"waiting" | "loading" | "ready" | "missing">(thumbnail ? "ready" : "waiting");
+  const [visible, setVisible] = useState(false);
+  const [status, setStatus] = useState<"waiting" | "loading" | "ready" | "missing">("waiting");
 
   useEffect(() => {
     const host = hostRef.current;
@@ -34,7 +32,7 @@ function LectureFirstPage({ lecture }: { lecture: Lecture }) {
   }, []);
 
   useEffect(() => {
-    if (!visible || thumbnail || !canvasRef.current) return;
+    if (!visible || !canvasRef.current) return;
     let cancelled = false;
     let document: unknown = null;
     setStatus("loading");
@@ -55,18 +53,13 @@ function LectureFirstPage({ lecture }: { lecture: Lecture }) {
       canvas.width = Math.max(1, Math.floor(viewport.width * outputScale));
       canvas.height = Math.max(1, Math.floor(viewport.height * outputScale));
       await page.render({ canvas, canvasContext: context, viewport, transform: outputScale === 1 ? undefined : [outputScale, 0, 0, outputScale, 0, 0] }).promise;
-      if (!cancelled) {
-        const rendered = canvas.toDataURL("image/jpeg", .82);
-        lectureThumbnailCache.set(lecture.id, rendered);
-        setThumbnail(rendered);
-        setStatus("ready");
-      }
+      if (!cancelled) setStatus("ready");
     })().catch(() => { if (!cancelled) setStatus("missing"); }).finally(() => { void (document as { destroy?(): Promise<void> } | null)?.destroy?.(); });
     return () => { cancelled = true; };
-  }, [lecture.id, thumbnail, visible]);
+  }, [lecture.id, visible]);
 
-  return <div className={`lecture-gallery-live-preview ${status}`} ref={hostRef} style={thumbnail ? { backgroundImage: `url(${thumbnail})` } : undefined}>
-    {!thumbnail && <canvas ref={canvasRef} aria-hidden="true" />}
+  return <div className={`lecture-gallery-live-preview ${status}`} ref={hostRef}>
+    <canvas ref={canvasRef} aria-hidden="true" />
     {status !== "ready" && <span>{status === "missing" ? "PDF preview unavailable" : "Loading first page…"}</span>}
   </div>;
 }

@@ -37,6 +37,15 @@ function drawInkStrokes(canvas: HTMLCanvasElement, strokes: InkStroke[]) {
 }
 
 const pdfDocumentCache = new Map<string, Promise<PdfDocument>>();
+const MAX_CANVAS_AREA = 12_000_000;
+const MAX_CANVAS_EDGE = 4096;
+
+function safeOutputScale(width: number, height: number) {
+  const requested = Math.min(window.devicePixelRatio || 1, 2);
+  const areaScale = Math.sqrt(MAX_CANVAS_AREA / Math.max(1, width * height));
+  const edgeScale = Math.min(MAX_CANVAS_EDGE / Math.max(1, width), MAX_CANVAS_EDGE / Math.max(1, height));
+  return Math.max(.5, Math.min(requested, areaScale, edgeScale));
+}
 
 function loadPdfDocument(lectureId: string, file: Blob) {
   const cached = pdfDocumentCache.get(lectureId);
@@ -93,20 +102,11 @@ export function PdfCanvasViewer({ file, lectureId, page, zoom, inkStrokes, penEn
       const stagingCanvas = window.document.createElement("canvas");
       const context = stagingCanvas.getContext("2d");
       if (!context) return;
-      const outputScale = Math.min(window.devicePixelRatio || 1, 2);
-      stagingCanvas.width = Math.floor(viewport.width * outputScale);
-      stagingCanvas.height = Math.floor(viewport.height * outputScale);
+      const outputScale = safeOutputScale(viewport.width, viewport.height);
+      stagingCanvas.width = Math.max(1, Math.floor(viewport.width * outputScale));
+      stagingCanvas.height = Math.max(1, Math.floor(viewport.height * outputScale));
       const renderTask = pdfPage.render({ canvas: stagingCanvas, canvasContext: context, viewport, transform: outputScale === 1 ? undefined : [outputScale, 0, 0, outputScale, 0, 0] });
-      const textContent = await pdfPage.getTextContent();
-      const textLayerContainer = textLayerRef.current;
-      if (!textLayerContainer) return;
-      textLayerContainer.replaceChildren();
-      textLayerContainer.style.setProperty("--total-scale-factor", String(scale));
-      textLayerContainer.style.setProperty("--scale-round-x", "1px");
-      textLayerContainer.style.setProperty("--scale-round-y", "1px");
-      const TextLayer = pdfjs.TextLayer as unknown as new (options: { textContentSource: unknown; container: HTMLElement; viewport: unknown }) => PdfTextLayer;
-      renderedTextLayer = new TextLayer({ textContentSource: textContent, container: textLayerContainer, viewport });
-      await Promise.all([renderTask.promise, renderedTextLayer.render()]);
+      await renderTask.promise;
       if (cancelled || !canvasRef.current) return;
       const canvas = canvasRef.current;
       const visibleContext = canvas.getContext("2d");
@@ -125,6 +125,22 @@ export function PdfCanvasViewer({ file, lectureId, page, zoom, inkStrokes, penEn
       }
       setTextLayerVersion((current) => current + 1);
       setStatus("");
+      // Selection is additive. A browser-specific text-layer failure must not
+      // suppress an otherwise successfully rendered PDF page.
+      try {
+        const textContent = await pdfPage.getTextContent();
+        const textLayerContainer = textLayerRef.current;
+        if (!textLayerContainer || cancelled) return;
+        textLayerContainer.replaceChildren();
+        textLayerContainer.style.setProperty("--total-scale-factor", String(scale));
+        textLayerContainer.style.setProperty("--scale-round-x", "1px");
+        textLayerContainer.style.setProperty("--scale-round-y", "1px");
+        const TextLayer = pdfjs.TextLayer as unknown as new (options: { textContentSource: unknown; container: HTMLElement; viewport: unknown }) => PdfTextLayer;
+        renderedTextLayer = new TextLayer({ textContentSource: textContent, container: textLayerContainer, viewport });
+        await renderedTextLayer.render();
+      } catch (error) {
+        console.warn("FCOM.lib could not render selectable PDF text on this browser.", error);
+      }
     })().catch(() => { if (!cancelled) setStatus("The PDF page could not be rendered."); });
     return () => { cancelled = true; renderedTextLayer?.cancel(); };
   }, [availableSize, document, page, zoom]);
