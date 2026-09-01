@@ -3,7 +3,8 @@ import { lectureWeekValue } from "./curriculum";
 
 export type Slide = { page: number; text: string; heading: string };
 export type InkPoint = { x: number; y: number };
-export type InkStroke = { id: string; points: InkPoint[] };
+export type InkTool = "pen" | "highlighter";
+export type InkStroke = { id: string; points: InkPoint[]; tool?: InkTool; color?: string; width?: number };
 export type SloStrength = "weak" | "okay" | "strong";
 export type LectureTocItem = { title:string; page:number };
 
@@ -131,7 +132,10 @@ function normalizeMarkups(value: unknown): Record<number, InkStroke[]> {
         if (typeof candidate.x !== "number" || typeof candidate.y !== "number" || !Number.isFinite(candidate.x) || !Number.isFinite(candidate.y)) return [];
         return [{ x: Math.min(1, Math.max(0, candidate.x)), y: Math.min(1, Math.max(0, candidate.y)) }];
       });
-      return points.length ? [{ id: textValue(record.id, crypto.randomUUID()), points }] : [];
+      const tool = record.tool === "highlighter" ? "highlighter" : "pen";
+      const color = typeof record.color === "string" && /^#[0-9a-f]{6}$/i.test(record.color) ? record.color : undefined;
+      const width = typeof record.width === "number" && Number.isFinite(record.width) ? Math.min(3, Math.max(1, record.width)) : undefined;
+      return points.length ? [{ id: textValue(record.id, crypto.randomUUID()), points, tool, color, width }] : [];
     });
     return normalized.length ? [[Number(page), normalized] as const] : [];
   });

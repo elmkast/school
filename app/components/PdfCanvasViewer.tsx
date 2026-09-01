@@ -19,13 +19,18 @@ function drawInkStrokes(canvas: HTMLCanvasElement, strokes: InkStroke[]) {
   const context = canvas.getContext("2d");
   if (!context) return;
   context.clearRect(0, 0, canvas.width, canvas.height);
-  context.strokeStyle = "#a62828";
-  context.fillStyle = "#a62828";
-  context.lineWidth = Math.max(2, canvas.width / 420);
   context.lineCap = "round";
   context.lineJoin = "round";
   strokes.forEach((stroke) => {
     if (!stroke.points.length) return;
+    const highlighter = stroke.tool === "highlighter";
+    const color = highlighter ? "#f2cf45" : stroke.color ?? "#a62828";
+    const width = stroke.width ?? 2;
+    context.globalAlpha = highlighter ? .32 : 1;
+    context.globalCompositeOperation = highlighter ? "multiply" : "source-over";
+    context.strokeStyle = color;
+    context.fillStyle = color;
+    context.lineWidth = Math.max(2, canvas.width / (highlighter ? 120 / width : 720 / width));
     context.beginPath();
     context.moveTo(stroke.points[0].x * canvas.width, stroke.points[0].y * canvas.height);
     stroke.points.slice(1).forEach((point) => context.lineTo(point.x * canvas.width, point.y * canvas.height));
@@ -34,6 +39,22 @@ function drawInkStrokes(canvas: HTMLCanvasElement, strokes: InkStroke[]) {
       context.fill();
     } else context.stroke();
   });
+  context.globalAlpha = 1;
+  context.globalCompositeOperation = "source-over";
+}
+
+function distanceToSegment(point: InkPoint, start: InkPoint, end: InkPoint) {
+  const dx = end.x - start.x;
+  const dy = end.y - start.y;
+  const lengthSquared = dx * dx + dy * dy;
+  if (!lengthSquared) return Math.hypot(point.x - start.x, point.y - start.y);
+  const amount = Math.max(0, Math.min(1, ((point.x - start.x) * dx + (point.y - start.y) * dy) / lengthSquared));
+  return Math.hypot(point.x - (start.x + amount * dx), point.y - (start.y + amount * dy));
+}
+
+function strokeTouchesPoint(stroke: InkStroke, point: InkPoint) {
+  if (stroke.points.length === 1) return Math.hypot(point.x - stroke.points[0].x, point.y - stroke.points[0].y) < .025;
+  return stroke.points.slice(1).some((end, index) => distanceToSegment(point, stroke.points[index], end) < .025);
 }
 
 const pdfDocumentCache = new Map<string, Promise<PdfDocument>>();
@@ -68,7 +89,16 @@ export function PdfCanvasViewer({ file, lectureId, page, zoom, inkStrokes, penEn
   const inkPointerIdRef = useRef<number | null>(null);
   const touchPointsRef = useRef(new Map<number, { x: number; y: number }>());
   const pinchRef = useRef<{ distance: number; zoom: number; targetZoom: number } | null>(null);
+  const currentInkRef = useRef(inkStrokes);
+  const eraserStartRef = useRef<InkStroke[] | null>(null);
+  const eraserDraftRef = useRef<InkStroke[] | null>(null);
+  const undoStackRef = useRef<InkStroke[][]>([]);
+  const redoStackRef = useRef<InkStroke[][]>([]);
   const [pinchScale, setPinchScale] = useState(1);
+  const [inkMode, setInkMode] = useState<"pen" | "highlighter" | "eraser">("pen");
+  const [inkColor, setInkColor] = useState("#1f2326");
+  const [inkWidth, setInkWidth] = useState(2);
+  const [history, setHistory] = useState({ undo:0, redo:0 });
   const [document, setDocument] = useState<PdfDocument | null>(null);
   const [availableSize, setAvailableSize] = useState({ width:800, height:600 });
   const [status, setStatus] = useState("Loading PDF…");
@@ -158,6 +188,32 @@ export function PdfCanvasViewer({ file, lectureId, page, zoom, inkStrokes, penEn
     return { x: Math.min(1, Math.max(0, (event.clientX - bounds.left) / bounds.width)), y: Math.min(1, Math.max(0, (event.clientY - bounds.top) / bounds.height)) };
   }
 
+  function commitInk(next: InkStroke[], previous = currentInkRef.current) {
+    undoStackRef.current.push(previous);
+    redoStackRef.current = [];
+    currentInkRef.current = next;
+    setHistory({ undo:undoStackRef.current.length, redo:0 });
+    onInkChange(next);
+  }
+
+  function undoInk() {
+    const previous = undoStackRef.current.pop();
+    if (!previous) return;
+    redoStackRef.current.push(currentInkRef.current);
+    currentInkRef.current = previous;
+    setHistory({ undo:undoStackRef.current.length, redo:redoStackRef.current.length });
+    onInkChange(previous);
+  }
+
+  function redoInk() {
+    const next = redoStackRef.current.pop();
+    if (!next) return;
+    undoStackRef.current.push(currentInkRef.current);
+    currentInkRef.current = next;
+    setHistory({ undo:undoStackRef.current.length, redo:redoStackRef.current.length });
+    onInkChange(next);
+  }
+
   function startInk(event: PointerEvent<HTMLDivElement>) {
     if (event.pointerType === "touch") {
       touchPointsRef.current.set(event.pointerId, { x: event.clientX, y: event.clientY });
@@ -171,8 +227,14 @@ export function PdfCanvasViewer({ file, lectureId, page, zoom, inkStrokes, penEn
     if (!penEnabled) return;
     event.currentTarget.setPointerCapture(event.pointerId);
     inkPointerIdRef.current = event.pointerId;
+    if (inkMode === "eraser") {
+      eraserStartRef.current = currentInkRef.current;
+      eraserDraftRef.current = currentInkRef.current.filter((stroke) => !strokeTouchesPoint(stroke, inkPoint(event)));
+      if (inkCanvasRef.current) drawInkStrokes(inkCanvasRef.current, eraserDraftRef.current);
+      return;
+    }
     draftInkRef.current = [inkPoint(event)];
-    if (inkCanvasRef.current) drawInkStrokes(inkCanvasRef.current, [...inkStrokes, { id: "draft", points: draftInkRef.current }]);
+    if (inkCanvasRef.current) drawInkStrokes(inkCanvasRef.current, [...currentInkRef.current, { id: "draft", points: draftInkRef.current, tool:inkMode, color:inkColor, width:inkWidth }]);
   }
 
   function continueInk(event: PointerEvent<HTMLDivElement>) {
@@ -189,9 +251,15 @@ export function PdfCanvasViewer({ file, lectureId, page, zoom, inkStrokes, penEn
       }
       return;
     }
-    if (!penEnabled || inkPointerIdRef.current !== event.pointerId || !draftInkRef.current || !(event.buttons & 1)) return;
+    if (!penEnabled || inkPointerIdRef.current !== event.pointerId || !(event.buttons & 1)) return;
+    if (inkMode === "eraser" && eraserDraftRef.current) {
+      eraserDraftRef.current = eraserDraftRef.current.filter((stroke) => !strokeTouchesPoint(stroke, inkPoint(event)));
+      if (inkCanvasRef.current) drawInkStrokes(inkCanvasRef.current, eraserDraftRef.current);
+      return;
+    }
+    if (!draftInkRef.current) return;
     draftInkRef.current.push(inkPoint(event));
-    if (inkCanvasRef.current) drawInkStrokes(inkCanvasRef.current, [...inkStrokes, { id: "draft", points: draftInkRef.current }]);
+    if (inkCanvasRef.current) drawInkStrokes(inkCanvasRef.current, [...currentInkRef.current, { id: "draft", points: draftInkRef.current, tool:inkMode, color:inkColor, width:inkWidth }]);
   }
 
   function finishInk(event: PointerEvent<HTMLDivElement>) {
@@ -206,16 +274,39 @@ export function PdfCanvasViewer({ file, lectureId, page, zoom, inkStrokes, penEn
       if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
       return;
     }
+    if (!penEnabled || inkPointerIdRef.current !== event.pointerId) return;
+    if (inkMode === "eraser" && eraserStartRef.current && eraserDraftRef.current) {
+      const previous = eraserStartRef.current;
+      const next = eraserDraftRef.current;
+      eraserStartRef.current = null;
+      eraserDraftRef.current = null;
+      inkPointerIdRef.current = null;
+      if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
+      if (next.length !== previous.length) commitInk(next, previous);
+      return;
+    }
     const points = draftInkRef.current;
-    if (!penEnabled || inkPointerIdRef.current !== event.pointerId || !points?.length) return;
+    if (!points?.length) return;
     draftInkRef.current = null;
     inkPointerIdRef.current = null;
     if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
-    onInkChange([...inkStrokes, { id: crypto.randomUUID(), points }]);
+    commitInk([...currentInkRef.current, { id: crypto.randomUUID(), points, tool:inkMode, color:inkColor, width:inkWidth }]);
   }
 
   return <div className="pdf-canvas-wrap" ref={containerRef}>
     {status && <span className="pdf-status">{status}</span>}
+    {penEnabled && <div className="pdf-ink-toolbar" aria-label="Annotation tools">
+      <button className={inkMode === "pen" ? "active" : ""} onClick={() => setInkMode("pen")}>Pen</button>
+      <button className={inkMode === "highlighter" ? "active" : ""} onClick={() => setInkMode("highlighter")}>Highlight</button>
+      <button className={inkMode === "eraser" ? "active" : ""} onClick={() => setInkMode("eraser")}>Eraser</button>
+      <span className="pdf-ink-divider" />
+      {[1, 2, 3].map((width) => <button key={width} className={`pdf-ink-width ${inkWidth === width ? "active" : ""}`} aria-label={`${width === 1 ? "Fine" : width === 2 ? "Medium" : "Broad"} stroke`} onClick={() => setInkWidth(width)}><i style={{ width:`${width * 3 + 2}px`, height:`${width * 3 + 2}px` }} /></button>)}
+      <span className="pdf-ink-divider" />
+      {["#1f2326", "#a62828", "#285f9e", "#397052"].map((color) => <button key={color} className={`pdf-ink-color ${inkColor === color ? "active" : ""}`} aria-label={`Use ${color} ink`} onClick={() => { setInkColor(color); setInkMode("pen"); }}><i style={{ background:color }} /></button>)}
+      <span className="pdf-ink-divider" />
+      <button disabled={!history.undo} onClick={undoInk}>Undo</button>
+      <button disabled={!history.redo} onClick={redoInk}>Redo</button>
+    </div>}
     <div className="pdf-canvas-content"><div className={`pdf-page-stack ${penEnabled ? "pen-active" : ""}`} style={{ transform:`scale(${pinchScale})`, transformOrigin:"center center", touchAction:"none" }} onPointerDown={startInk} onPointerMove={continueInk} onPointerUp={finishInk} onPointerCancel={finishInk}><canvas ref={canvasRef} aria-label={`PDF page ${page}`} /><div ref={textLayerRef} className="pdf-text-layer textLayer" aria-label={`Selectable text for PDF page ${page}`} /><canvas ref={inkCanvasRef} className={`pdf-ink-layer ${penEnabled ? "drawing" : ""}`} aria-label={`Pen markup for PDF page ${page}`} /></div></div>
   </div>;
 }
