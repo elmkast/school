@@ -164,6 +164,7 @@ export function PdfCanvasViewer({ file, lectureId, page, zoom, inkStrokes, penEn
       const pendingAnchor = pendingZoomAnchorRef.current;
       if (pendingAnchor) {
         pendingZoomAnchorRef.current = null;
+        if (pageStackRef.current) pageStackRef.current.style.transform = "scale(1)";
         setPinchScale(1);
         window.requestAnimationFrame(() => window.requestAnimationFrame(() => {
           if (cancelled || !containerRef.current || !pageStackRef.current) return;
