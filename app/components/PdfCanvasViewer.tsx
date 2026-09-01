@@ -59,12 +59,16 @@ function loadPdfDocument(lectureId: string, file: Blob) {
   return promise;
 }
 
-export function PdfCanvasViewer({ file, lectureId, page, zoom, inkStrokes, penEnabled, onInkChange }: { file: Blob; lectureId: string; page: number; zoom:number; inkStrokes: InkStroke[]; penEnabled: boolean; onInkChange(strokes: InkStroke[]): void }) {
+export function PdfCanvasViewer({ file, lectureId, page, zoom, inkStrokes, penEnabled, onInkChange, onZoomChange }: { file: Blob; lectureId: string; page: number; zoom:number; inkStrokes: InkStroke[]; penEnabled: boolean; onInkChange(strokes: InkStroke[]): void; onZoomChange(zoom: number): void }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const inkCanvasRef = useRef<HTMLCanvasElement>(null);
   const textLayerRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const draftInkRef = useRef<InkPoint[] | null>(null);
+  const inkPointerIdRef = useRef<number | null>(null);
+  const touchPointsRef = useRef(new Map<number, { x: number; y: number }>());
+  const pinchRef = useRef<{ distance: number; zoom: number; targetZoom: number } | null>(null);
+  const [pinchScale, setPinchScale] = useState(1);
   const [document, setDocument] = useState<PdfDocument | null>(null);
   const [availableSize, setAvailableSize] = useState({ width:800, height:600 });
   const [status, setStatus] = useState("Loading PDF…");
@@ -149,35 +153,70 @@ export function PdfCanvasViewer({ file, lectureId, page, zoom, inkStrokes, penEn
     if (inkCanvasRef.current) drawInkStrokes(inkCanvasRef.current, inkStrokes);
   }, [inkStrokes, textLayerVersion]);
 
-  function inkPoint(event: PointerEvent<HTMLCanvasElement>): InkPoint {
+  function inkPoint(event: PointerEvent<HTMLDivElement>): InkPoint {
     const bounds = event.currentTarget.getBoundingClientRect();
     return { x: Math.min(1, Math.max(0, (event.clientX - bounds.left) / bounds.width)), y: Math.min(1, Math.max(0, (event.clientY - bounds.top) / bounds.height)) };
   }
 
-  function startInk(event: PointerEvent<HTMLCanvasElement>) {
+  function startInk(event: PointerEvent<HTMLDivElement>) {
+    if (event.pointerType === "touch") {
+      touchPointsRef.current.set(event.pointerId, { x: event.clientX, y: event.clientY });
+      event.currentTarget.setPointerCapture(event.pointerId);
+      if (touchPointsRef.current.size === 2) {
+        const [first, second] = Array.from(touchPointsRef.current.values());
+        pinchRef.current = { distance: Math.hypot(second.x - first.x, second.y - first.y), zoom, targetZoom: zoom };
+      }
+      return;
+    }
     if (!penEnabled) return;
     event.currentTarget.setPointerCapture(event.pointerId);
+    inkPointerIdRef.current = event.pointerId;
     draftInkRef.current = [inkPoint(event)];
-    drawInkStrokes(event.currentTarget, [...inkStrokes, { id: "draft", points: draftInkRef.current }]);
+    if (inkCanvasRef.current) drawInkStrokes(inkCanvasRef.current, [...inkStrokes, { id: "draft", points: draftInkRef.current }]);
   }
 
-  function continueInk(event: PointerEvent<HTMLCanvasElement>) {
-    if (!penEnabled || !draftInkRef.current || !(event.buttons & 1)) return;
+  function continueInk(event: PointerEvent<HTMLDivElement>) {
+    if (event.pointerType === "touch") {
+      if (!touchPointsRef.current.has(event.pointerId)) return;
+      touchPointsRef.current.set(event.pointerId, { x: event.clientX, y: event.clientY });
+      const pinch = pinchRef.current;
+      if (pinch && touchPointsRef.current.size >= 2) {
+        const [first, second] = Array.from(touchPointsRef.current.values());
+        const distance = Math.hypot(second.x - first.x, second.y - first.y);
+        const targetZoom = Math.min(2.5, Math.max(.6, pinch.zoom * distance / Math.max(1, pinch.distance)));
+        pinch.targetZoom = targetZoom;
+        setPinchScale(targetZoom / pinch.zoom);
+      }
+      return;
+    }
+    if (!penEnabled || inkPointerIdRef.current !== event.pointerId || !draftInkRef.current || !(event.buttons & 1)) return;
     draftInkRef.current.push(inkPoint(event));
-    drawInkStrokes(event.currentTarget, [...inkStrokes, { id: "draft", points: draftInkRef.current }]);
+    if (inkCanvasRef.current) drawInkStrokes(inkCanvasRef.current, [...inkStrokes, { id: "draft", points: draftInkRef.current }]);
   }
 
-  function finishInk(event: PointerEvent<HTMLCanvasElement>) {
+  function finishInk(event: PointerEvent<HTMLDivElement>) {
+    if (event.pointerType === "touch") {
+      touchPointsRef.current.delete(event.pointerId);
+      if (touchPointsRef.current.size < 2 && pinchRef.current) {
+        const targetZoom = pinchRef.current.targetZoom;
+        pinchRef.current = null;
+        setPinchScale(1);
+        onZoomChange(Number(targetZoom.toFixed(2)));
+      }
+      if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
+      return;
+    }
     const points = draftInkRef.current;
-    if (!penEnabled || !points?.length) return;
+    if (!penEnabled || inkPointerIdRef.current !== event.pointerId || !points?.length) return;
     draftInkRef.current = null;
+    inkPointerIdRef.current = null;
     if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
     onInkChange([...inkStrokes, { id: crypto.randomUUID(), points }]);
   }
 
   return <div className="pdf-canvas-wrap" ref={containerRef}>
     {status && <span className="pdf-status">{status}</span>}
-    <div className="pdf-canvas-content"><div className={`pdf-page-stack ${penEnabled ? "pen-active" : ""}`}><canvas ref={canvasRef} aria-label={`PDF page ${page}`} /><div ref={textLayerRef} className="pdf-text-layer textLayer" aria-label={`Selectable text for PDF page ${page}`} /><canvas ref={inkCanvasRef} className={`pdf-ink-layer ${penEnabled ? "drawing" : ""}`} aria-label={`Pen markup for PDF page ${page}`} onPointerDown={startInk} onPointerMove={continueInk} onPointerUp={finishInk} onPointerCancel={finishInk} /></div></div>
+    <div className="pdf-canvas-content"><div className={`pdf-page-stack ${penEnabled ? "pen-active" : ""}`} style={{ transform:`scale(${pinchScale})`, transformOrigin:"center center", touchAction:"none" }} onPointerDown={startInk} onPointerMove={continueInk} onPointerUp={finishInk} onPointerCancel={finishInk}><canvas ref={canvasRef} aria-label={`PDF page ${page}`} /><div ref={textLayerRef} className="pdf-text-layer textLayer" aria-label={`Selectable text for PDF page ${page}`} /><canvas ref={inkCanvasRef} className={`pdf-ink-layer ${penEnabled ? "drawing" : ""}`} aria-label={`Pen markup for PDF page ${page}`} /></div></div>
   </div>;
 }
 
