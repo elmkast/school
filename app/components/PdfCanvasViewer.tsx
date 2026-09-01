@@ -184,7 +184,7 @@ export function PdfCanvasViewer({ file, lectureId, page, zoom, inkStrokes, penEn
   }, [inkStrokes, textLayerVersion]);
 
   function inkPoint(event: PointerEvent<HTMLDivElement>): InkPoint {
-    const bounds = event.currentTarget.getBoundingClientRect();
+    const bounds = inkCanvasRef.current?.getBoundingClientRect() ?? event.currentTarget.getBoundingClientRect();
     return { x: Math.min(1, Math.max(0, (event.clientX - bounds.left) / bounds.width)), y: Math.min(1, Math.max(0, (event.clientY - bounds.top) / bounds.height)) };
   }
 
@@ -251,7 +251,7 @@ export function PdfCanvasViewer({ file, lectureId, page, zoom, inkStrokes, penEn
       }
       return;
     }
-    if (!penEnabled || inkPointerIdRef.current !== event.pointerId || !(event.buttons & 1)) return;
+    if (!penEnabled || inkPointerIdRef.current !== event.pointerId) return;
     if (inkMode === "eraser" && eraserDraftRef.current) {
       eraserDraftRef.current = eraserDraftRef.current.filter((stroke) => !strokeTouchesPoint(stroke, inkPoint(event)));
       if (inkCanvasRef.current) drawInkStrokes(inkCanvasRef.current, eraserDraftRef.current);
