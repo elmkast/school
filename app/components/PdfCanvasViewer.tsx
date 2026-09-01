@@ -322,7 +322,7 @@ export function PdfCanvasViewer({ file, lectureId, page, zoom, inkStrokes, penEn
       <button disabled={!history.undo} onClick={undoInk}>Undo</button>
       <button disabled={!history.redo} onClick={redoInk}>Redo</button>
     </div>}
-    <div className="pdf-canvas-content"><div className={`pdf-page-stack ${penEnabled ? "pen-active" : ""}`} style={{ transform:`scale(${pinchScale})`, transformOrigin:"center center", touchAction:"none" }} onPointerDown={startInk} onPointerMove={continueInk} onPointerUp={finishInk} onPointerCancel={finishInk}><canvas ref={canvasRef} aria-label={`PDF page ${page}`} /><div ref={textLayerRef} className="pdf-text-layer textLayer" aria-label={`Selectable text for PDF page ${page}`} /><canvas ref={inkCanvasRef} className={`pdf-ink-layer ${penEnabled ? "drawing" : ""}`} aria-label={`Pen markup for PDF page ${page}`} /></div></div>
+    <div className="pdf-canvas-content"><div className={`pdf-page-stack ${penEnabled ? "pen-active" : ""}`} style={{ transform:`scale(${pinchScale})`, transformOrigin:"center center", touchAction:"none" }} onContextMenu={(event) => event.preventDefault()} onDragStart={(event) => event.preventDefault()} onPointerDown={startInk} onPointerMove={continueInk} onPointerUp={finishInk} onPointerCancel={finishInk}><canvas ref={canvasRef} aria-label={`PDF page ${page}`} /><div ref={textLayerRef} className="pdf-text-layer textLayer" aria-label={`PDF text for page ${page}`} /><canvas ref={inkCanvasRef} className={`pdf-ink-layer ${penEnabled ? "drawing" : ""}`} aria-label={`Pen markup for PDF page ${page}`} /></div></div>
   </div>;
 }
 
