@@ -85,17 +85,20 @@ export function PdfCanvasViewer({ file, lectureId, page, zoom, inkStrokes, penEn
   const inkCanvasRef = useRef<HTMLCanvasElement>(null);
   const textLayerRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+  const pageStackRef = useRef<HTMLDivElement>(null);
   const draftInkRef = useRef<InkPoint[] | null>(null);
   const inkPointerIdRef = useRef<number | null>(null);
   const touchPointsRef = useRef(new Map<number, { x: number; y: number }>());
   const singlePanRef = useRef<{ pointerId: number; x: number; y: number; scrollLeft: number; scrollTop: number } | null>(null);
-  const pinchRef = useRef<{ distance: number; zoom: number; targetZoom: number; centerX: number; centerY: number; scrollLeft: number; scrollTop: number } | null>(null);
+  const pinchRef = useRef<{ distance: number; zoom: number; targetZoom: number; centerX: number; centerY: number; currentCenterX: number; currentCenterY: number; anchorX: number; anchorY: number; scrollLeft: number; scrollTop: number } | null>(null);
+  const pendingZoomAnchorRef = useRef<{ x: number; y: number; clientX: number; clientY: number } | null>(null);
   const currentInkRef = useRef(inkStrokes);
   const eraserStartRef = useRef<InkStroke[] | null>(null);
   const eraserDraftRef = useRef<InkStroke[] | null>(null);
   const undoStackRef = useRef<InkStroke[][]>([]);
   const redoStackRef = useRef<InkStroke[][]>([]);
   const [pinchScale, setPinchScale] = useState(1);
+  const [pinchOrigin, setPinchOrigin] = useState({ x:.5, y:.5 });
   const [inkMode, setInkMode] = useState<"pen" | "highlighter" | "eraser">("pen");
   const [inkColor, setInkColor] = useState("#1f2326");
   const [inkWidth, setInkWidth] = useState(2);
@@ -157,6 +160,19 @@ export function PdfCanvasViewer({ file, lectureId, page, zoom, inkStrokes, penEn
         inkCanvas.height = stagingCanvas.height;
         inkCanvas.style.width = `${Math.floor(viewport.width)}px`;
         inkCanvas.style.height = `${Math.floor(viewport.height)}px`;
+      }
+      const pendingAnchor = pendingZoomAnchorRef.current;
+      if (pendingAnchor) {
+        pendingZoomAnchorRef.current = null;
+        setPinchScale(1);
+        window.requestAnimationFrame(() => window.requestAnimationFrame(() => {
+          if (cancelled || !containerRef.current || !pageStackRef.current) return;
+          const bounds = pageStackRef.current.getBoundingClientRect();
+          const anchoredClientX = bounds.left + pendingAnchor.x * bounds.width;
+          const anchoredClientY = bounds.top + pendingAnchor.y * bounds.height;
+          containerRef.current.scrollLeft += anchoredClientX - pendingAnchor.clientX;
+          containerRef.current.scrollTop += anchoredClientY - pendingAnchor.clientY;
+        }));
       }
       setTextLayerVersion((current) => current + 1);
       setStatus("");
@@ -225,12 +241,22 @@ export function PdfCanvasViewer({ file, lectureId, page, zoom, inkStrokes, penEn
         singlePanRef.current = null;
         const [first, second] = Array.from(touchPointsRef.current.values());
         const scroller = containerRef.current;
+        const pageBounds = pageStackRef.current?.getBoundingClientRect();
+        const centerX = (first.x + second.x) / 2;
+        const centerY = (first.y + second.y) / 2;
+        const anchorX = pageBounds ? Math.min(1, Math.max(0, (centerX - pageBounds.left) / pageBounds.width)) : .5;
+        const anchorY = pageBounds ? Math.min(1, Math.max(0, (centerY - pageBounds.top) / pageBounds.height)) : .5;
+        setPinchOrigin({ x:anchorX, y:anchorY });
         pinchRef.current = {
           distance: Math.hypot(second.x - first.x, second.y - first.y),
           zoom,
           targetZoom: zoom,
-          centerX: (first.x + second.x) / 2,
-          centerY: (first.y + second.y) / 2,
+          centerX,
+          centerY,
+          currentCenterX:centerX,
+          currentCenterY:centerY,
+          anchorX,
+          anchorY,
           scrollLeft: scroller?.scrollLeft ?? 0,
           scrollTop: scroller?.scrollTop ?? 0,
         };
@@ -262,6 +288,8 @@ export function PdfCanvasViewer({ file, lectureId, page, zoom, inkStrokes, penEn
         const centerY = (first.y + second.y) / 2;
         const targetZoom = Math.min(4, Math.max(.6, pinch.zoom * distance / Math.max(1, pinch.distance)));
         pinch.targetZoom = targetZoom;
+        pinch.currentCenterX = centerX;
+        pinch.currentCenterY = centerY;
         setPinchScale(targetZoom / pinch.zoom);
         if (containerRef.current) {
           containerRef.current.scrollLeft = pinch.scrollLeft + pinch.centerX - centerX;
@@ -288,9 +316,11 @@ export function PdfCanvasViewer({ file, lectureId, page, zoom, inkStrokes, penEn
     if (event.pointerType === "touch") {
       touchPointsRef.current.delete(event.pointerId);
       if (touchPointsRef.current.size < 2 && pinchRef.current) {
-        const targetZoom = pinchRef.current.targetZoom;
+        const pinch = pinchRef.current;
+        const targetZoom = pinch.targetZoom;
         pinchRef.current = null;
-        setPinchScale(1);
+        if (Math.abs(targetZoom - pinch.zoom) > .005) pendingZoomAnchorRef.current = { x:pinch.anchorX, y:pinch.anchorY, clientX:pinch.currentCenterX, clientY:pinch.currentCenterY };
+        else setPinchScale(1);
         onZoomChange(Number(targetZoom.toFixed(2)));
         const remaining = Array.from(touchPointsRef.current.entries())[0];
         singlePanRef.current = remaining ? { pointerId:remaining[0], x:remaining[1].x, y:remaining[1].y, scrollLeft:containerRef.current?.scrollLeft ?? 0, scrollTop:containerRef.current?.scrollTop ?? 0 } : null;
@@ -333,7 +363,7 @@ export function PdfCanvasViewer({ file, lectureId, page, zoom, inkStrokes, penEn
       <button disabled={!history.undo} onClick={undoInk}>Undo</button>
       <button disabled={!history.redo} onClick={redoInk}>Redo</button>
     </div>}
-    <div className="pdf-canvas-content"><div className={`pdf-page-stack ${penEnabled ? "pen-active" : ""}`} style={{ transform:`scale(${pinchScale})`, transformOrigin:"center center", touchAction:"none" }} onContextMenu={(event) => event.preventDefault()} onDragStart={(event) => event.preventDefault()} onPointerDown={startInk} onPointerMove={continueInk} onPointerUp={finishInk} onPointerCancel={finishInk}><canvas ref={canvasRef} aria-label={`PDF page ${page}`} /><div ref={textLayerRef} className="pdf-text-layer textLayer" aria-label={`PDF text for page ${page}`} /><canvas ref={inkCanvasRef} className={`pdf-ink-layer ${penEnabled ? "drawing" : ""}`} aria-label={`Pen markup for PDF page ${page}`} /></div></div>
+    <div className="pdf-canvas-content"><div ref={pageStackRef} className={`pdf-page-stack ${penEnabled ? "pen-active" : ""}`} style={{ transform:`scale(${pinchScale})`, transformOrigin:`${pinchOrigin.x * 100}% ${pinchOrigin.y * 100}%`, touchAction:"none" }} onContextMenu={(event) => event.preventDefault()} onDragStart={(event) => event.preventDefault()} onPointerDown={startInk} onPointerMove={continueInk} onPointerUp={finishInk} onPointerCancel={finishInk}><canvas ref={canvasRef} aria-label={`PDF page ${page}`} /><div ref={textLayerRef} className="pdf-text-layer textLayer" aria-label={`PDF text for page ${page}`} /><canvas ref={inkCanvasRef} className={`pdf-ink-layer ${penEnabled ? "drawing" : ""}`} aria-label={`Pen markup for PDF page ${page}`} /></div></div>
   </div>;
 }
 
