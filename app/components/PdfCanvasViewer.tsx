@@ -90,7 +90,7 @@ export function PdfCanvasViewer({ file, lectureId, page, zoom, inkStrokes, penEn
   const inkPointerIdRef = useRef<number | null>(null);
   const touchPointsRef = useRef(new Map<number, { x: number; y: number }>());
   const singlePanRef = useRef<{ pointerId: number; x: number; y: number; scrollLeft: number; scrollTop: number } | null>(null);
-  const pinchRef = useRef<{ distance: number; zoom: number; targetZoom: number; centerX: number; centerY: number; currentCenterX: number; currentCenterY: number; anchorX: number; anchorY: number; scrollLeft: number; scrollTop: number } | null>(null);
+  const pinchRef = useRef<{ distance: number; zoom: number; targetZoom: number; currentCenterX: number; currentCenterY: number; anchorX: number; anchorY: number } | null>(null);
   const pendingZoomAnchorRef = useRef<{ x: number; y: number; clientX: number; clientY: number } | null>(null);
   const currentInkRef = useRef(inkStrokes);
   const eraserStartRef = useRef<InkStroke[] | null>(null);
@@ -241,9 +241,10 @@ export function PdfCanvasViewer({ file, lectureId, page, zoom, inkStrokes, penEn
         singlePanRef.current = null;
         const [first, second] = Array.from(touchPointsRef.current.values());
         const scroller = containerRef.current;
+        const scrollerBounds = scroller?.getBoundingClientRect();
         const pageBounds = pageStackRef.current?.getBoundingClientRect();
-        const centerX = (first.x + second.x) / 2;
-        const centerY = (first.y + second.y) / 2;
+        const centerX = scrollerBounds ? scrollerBounds.left + scrollerBounds.width / 2 : (first.x + second.x) / 2;
+        const centerY = scrollerBounds ? scrollerBounds.top + scrollerBounds.height / 2 : (first.y + second.y) / 2;
         const anchorX = pageBounds ? Math.min(1, Math.max(0, (centerX - pageBounds.left) / pageBounds.width)) : .5;
         const anchorY = pageBounds ? Math.min(1, Math.max(0, (centerY - pageBounds.top) / pageBounds.height)) : .5;
         setPinchOrigin({ x:anchorX, y:anchorY });
@@ -251,14 +252,10 @@ export function PdfCanvasViewer({ file, lectureId, page, zoom, inkStrokes, penEn
           distance: Math.hypot(second.x - first.x, second.y - first.y),
           zoom,
           targetZoom: zoom,
-          centerX,
-          centerY,
           currentCenterX:centerX,
           currentCenterY:centerY,
           anchorX,
           anchorY,
-          scrollLeft: scroller?.scrollLeft ?? 0,
-          scrollTop: scroller?.scrollTop ?? 0,
         };
       }
       return;
@@ -284,17 +281,9 @@ export function PdfCanvasViewer({ file, lectureId, page, zoom, inkStrokes, penEn
       if (pinch && touchPointsRef.current.size >= 2) {
         const [first, second] = Array.from(touchPointsRef.current.values());
         const distance = Math.hypot(second.x - first.x, second.y - first.y);
-        const centerX = (first.x + second.x) / 2;
-        const centerY = (first.y + second.y) / 2;
         const targetZoom = Math.min(4, Math.max(.6, pinch.zoom * distance / Math.max(1, pinch.distance)));
         pinch.targetZoom = targetZoom;
-        pinch.currentCenterX = centerX;
-        pinch.currentCenterY = centerY;
         setPinchScale(targetZoom / pinch.zoom);
-        if (containerRef.current) {
-          containerRef.current.scrollLeft = pinch.scrollLeft + pinch.centerX - centerX;
-          containerRef.current.scrollTop = pinch.scrollTop + pinch.centerY - centerY;
-        }
       } else if (touchPointsRef.current.size === 1 && singlePanRef.current?.pointerId === event.pointerId && containerRef.current) {
         containerRef.current.scrollLeft = singlePanRef.current.scrollLeft + singlePanRef.current.x - event.clientX;
         containerRef.current.scrollTop = singlePanRef.current.scrollTop + singlePanRef.current.y - event.clientY;
