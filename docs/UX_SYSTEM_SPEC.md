@@ -2,6 +2,8 @@
 
 Last updated: August 29, 2026
 
+Current audit and unadopted prototypes: [September UI review](UI_REVIEW_2026-09.md). Some sections below describe earlier iterations (including the former SLO card layout and Luna/notes panes); they are historical until reconciled with a selected proposal.
+
 ## Design language
 
 FCOM.lib is a restrained scientific workspace: neutral surfaces, compact controls, strong typography, square geometry, and minimal decorative iconography. The lecture archive is deliberately darker and more visual than the study workspaces, while controls remain consistent and functional.
@@ -38,7 +40,14 @@ FCOM.lib is a restrained scientific workspace: neutral surfaces, compact control
 - Notes autosave and never require a Save button.
 - Functional icons are allowed for bookmark, pen-related controls, close, and delete.
 
-## Interaction principles
+## Adaptive quiz (September 2026 addition)
+
+- Quiz opens a lecture selector; Start quiz in the reader preselects the open lecture.
+- One question at a time; feedback remains visible while the next adaptive question is generated.
+- Exit is always available and clears session-only state. This does not restore the removed question bank.
+- UI review includes the actual dialog with no-API fixtures. See `ADAPTIVE_QUIZ.md` for generation rules, verification, and deployment requirements.
+
+## General interaction principles
 
 - A click should have one destination or one expansion effect, never both.
 - Destructive actions require confirmation.

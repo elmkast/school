@@ -1,0 +1,62 @@
+/* 1990s university web, not a simulated operating system. Review-only. */
+.ux-review .retro-page { --retro-rule:#999; background:#fff; color:#000; padding:18px 22px; min-height:820px; font:400 17px/1.3 "Times New Roman",Times,serif; }
+.ux-review .retro-page :is(h1,h2,p) { color:#000; font-family:"Times New Roman",Times,serif; }
+.ux-review .retro-page h1 { font-size:36px; font-weight:bold; margin:0 0 8px; }
+.ux-review .retro-page h2 { font-size:23px; font-weight:bold; margin:22px 0 10px; }
+.ux-review .retro-page p { margin:10px 0; }
+.ux-review .retro-page a { color:#0000ee; text-decoration:underline; cursor:pointer; }
+.ux-review .retro-page a.retro-visited { color:#551a8b; }
+.ux-review .retro-page a:active { color:#f00; }
+.ux-review .retro-page hr { height:2px; border:0; border-top:1px solid #888; border-bottom:1px solid #eee; margin:12px 0; }
+.retro-header { display:flex; justify-content:space-between; align-items:baseline; flex-wrap:wrap; gap:4px 20px; }
+.retro-header>span { white-space:nowrap; margin-left:auto; }
+.retro-header>span,.retro-small,.retro-footer { font-size:15px; }
+.retro-navigation { line-height:1.8; }
+.ux-review .retro-page button { appearance:auto; min-height:28px; color:#000; background:#d4d0c8; border:2px outset #eee; border-radius:0; padding:2px 9px; font:400 15px/1.25 "Times New Roman",Times,serif; box-shadow:none; text-transform:none; }
+.ux-review .retro-page button:active:not(:disabled) { border-style:inset; }
+.ux-review .retro-page button:disabled { opacity:1; color:#777; }
+.ux-review .retro-page :is(input:not([type=checkbox]):not([type=radio]),select) { appearance:auto; min-height:28px; color:#000; background:#fff; border:2px inset #ddd; padding:2px 4px; font:400 16px "Times New Roman",Times,serif; width:auto; border-radius:0; }
+.ux-review .retro-page :is(input[type=checkbox],input[type=radio]) { appearance:auto; width:15px; height:15px; min-height:15px; accent-color:#000080; margin:0 5px 0 0; vertical-align:middle; }
+.ux-review .retro-page :is(button,a,input,select):focus-visible { outline:1px dotted #000; outline-offset:3px; }
+.retro-filter,.retro-find { display:flex; flex-wrap:wrap; align-items:center; gap:10px 22px; margin:16px 0; }
+.retro-filter label { display:inline-flex; align-items:center; gap:6px; }
+.ux-review .retro-page table { border:1px solid #808080; border-spacing:2px; border-collapse:separate; width:100%; font:inherit; background:#fff; }
+.ux-review .retro-page :is(th,td) { border:1px solid #bbb; padding:7px 9px; text-align:left; vertical-align:middle; color:#000; background:#fff; }
+.ux-review .retro-page th { background:#e8e8e8; font-weight:bold; }
+.ux-review .retro-page .retro-thumbnail { width:114px; padding:5px; background:#f2f2f2; }
+.retro-thumbnail a { display:block; border:1px solid #0000ee; }
+.ux-review .retro-page .desk-slide { font-family:"Times New Roman",Times,serif; display:block; width:100%; height:auto; }
+.retro-preview-heading { width:114px; }
+.retro-lecture-table td:last-child { width:125px; }
+.retro-table-scroll { overflow-x:auto; }
+.retro-objective-table { min-width:590px; }
+.ux-review .retro-page .retro-objective-table :is(th,td):not(:nth-child(2)) { text-align:center; width:52px; padding:3px; }
+.ux-review .retro-page .retro-objective-table td:nth-child(2) { padding:9px 11px; }
+.ux-review .retro-page .retro-objective-table p { margin:0 0 6px; }
+.retro-objective-table td a { font-size:15px; }
+.retro-choice label { display:grid; place-items:center; min-width:36px; min-height:40px; cursor:pointer; }
+.ux-review .retro-page .retro-choice input { margin:0; }
+.retro-objective-actions { margin:10px 0; }
+.retro-actions { display:flex; gap:14px; align-items:center; margin:16px 0; }
+.retro-footer { margin-top:28px; }
+.retro-location { margin:14px 0; }
+.retro-reader-controls { display:flex; align-items:center; gap:10px; flex-wrap:wrap; padding:8px 0 14px; }
+.retro-reader { display:flex; min-height:450px; max-height:680px; border:1px solid #888; background:#c0c0c0; }
+.retro-slide-scroll { flex:1; min-width:0; overflow:auto; padding:12px; display:flex; align-items:flex-start; }
+.retro-slide-scroll>div { flex:none; margin:auto; border:1px solid #777; }
+.retro-contents { flex:none; width:195px; overflow:auto; background:white; padding:14px 10px 14px 34px; margin:0; border-right:1px solid #888; font-size:15px; }
+.retro-contents li { padding:4px 0; }
+.retro-studying { padding:8px; border:1px solid #aaa; }
+.retro-study { max-width:680px; min-height:450px; padding:4px 0; }
+.ux-review .retro-page .retro-study>p:first-of-type { font-size:23px; line-height:1.4; }
+.retro-study fieldset { border:2px groove #ddd; padding:10px 14px; margin:20px 0; }
+.retro-study fieldset label { display:inline-block; margin-right:24px; min-height:30px; }
+@container(max-width:600px) {
+  .ux-review .retro-page { padding:12px; }
+  .retro-navigation { font-size:16px; }
+  .ux-review .retro-page .retro-thumbnail,.retro-preview-heading { width:80px; }
+  .retro-lecture-table td:last-child { width:auto; }
+  .retro-reader { flex-direction:column; max-height:none; }
+  .retro-contents { width:100%; max-height:180px; border-bottom:1px solid #888; }
+  .retro-slide-scroll { min-height:280px; }
+}

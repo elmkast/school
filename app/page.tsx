@@ -15,6 +15,7 @@ import { LectureGallery } from "./components/LectureGallery";
 import { LectureImportReview, type LectureImportJob, type LectureImportStatus } from "./components/LectureImportReview";
 import { PdfCanvasViewer } from "./components/PdfCanvasViewer";
 import { SloWorkspace } from "./components/SloWorkspace";
+import { AdaptiveQuiz } from "./components/AdaptiveQuiz";
 
 function readableError(error: unknown) {
   if (error instanceof Error && error.message) return error.message;
@@ -77,6 +78,7 @@ const aiEndpoint = (action: "analyze" | "reparse-slos" | "toc") => `/.netlify/fu
 export default function Home() {
   const [lectures, setLectures] = useState<Lecture[]>(seedLectures);
   const [view, setView] = useState<View>("lectures");
+  const [quizOpen, setQuizOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [notice, setNotice] = useState("");
   const [localReady, setLocalReady] = useState(false);
@@ -198,7 +200,7 @@ export default function Home() {
   }, [viewerLectureId]);
 
   useEffect(() => {
-    if (!viewerLecture) return;
+    if (!viewerLecture || quizOpen) return;
     const handleKey = (event: KeyboardEvent) => {
       if (event.key === "Escape") { setViewerLectureId(""); return; }
       const target = event.target;
@@ -209,7 +211,7 @@ export default function Home() {
     window.addEventListener("keydown", handleKey); return () => window.removeEventListener("keydown", handleKey);
   // The keyboard handler intentionally follows the current viewer snapshot.
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [viewerLecture, selectedPage]);
+  }, [viewerLecture, selectedPage, quizOpen]);
 
   async function generateLectureToc(lecture: Lecture) {
     if (tocLoading) return;
@@ -422,7 +424,7 @@ export default function Home() {
   if (cloudConfigured && !cloudSession) return <main className="cloud-gate"><section className="cloud-auth-card"><strong className="cloud-wordmark">FCOM.lib</strong><div className="cloud-auth-heading"><small>PRIVATE CURRICULUM LIBRARY</small><h1>{authMode === "signin" ? "Sign in" : "Create your account"}</h1><p>Your lectures, annotations, and SLOs stay private to your account.</p></div><form onSubmit={submitCloudAuth}><label><span>Email</span><input type="email" autoComplete="email" value={authEmail} onChange={(event) => setAuthEmail(event.target.value)} required /></label><label><span>Password</span><input type="password" minLength={6} autoComplete={authMode === "signin" ? "current-password" : "new-password"} value={authPassword} onChange={(event) => setAuthPassword(event.target.value)} required /></label>{authMessage && <p className="cloud-auth-message" role="status">{authMessage}</p>}<button className="cloud-auth-submit" type="submit" disabled={authBusy}>{authBusy ? "Working…" : authMode === "signin" ? "Sign in" : "Create account"}</button></form><div className="cloud-auth-links">{authMode === "signin" && <button type="button" onClick={() => void sendPasswordReset()}>Forgot password?</button>}<button type="button" onClick={() => { setAuthMode((current) => current === "signin" ? "signup" : "signin"); setAuthMessage(""); }}>{authMode === "signin" ? "Create account" : "Sign in"}</button></div></section></main>;
 
   return <main className="shell simplified-shell"><section className="workspace">
-    <header className="topbar simplified-topbar"><button className="topbar-wordmark" onClick={() => setView("lectures")}>FCOM.lib</button><nav className="workspace-nav" aria-label="Primary navigation"><button className={view === "lectures" ? "active" : ""} onClick={() => setView("lectures")}>Lectures</button><button className={view === "slos" ? "active" : ""} onClick={() => setView("slos")}>SLOs</button></nav><label className="global-search"><AppIcon name="search"/><input aria-label="Search the curriculum" value={query} onChange={(event) => { setQuery(event.target.value); if (event.target.value) setView("search"); }}/></label><button className="upload-button" onClick={() => { setUploadReviewOpen(true); if (!uploadQueue.length) fileInput.current?.click(); }}><AppIcon name="upload"/>Add lectures</button><input ref={fileInput} type="file" accept="application/pdf" multiple hidden onChange={(event) => { if (event.target.files?.length) enqueueFiles(event.target.files); event.target.value = ""; }}/><div className="topbar-account"><span>{cloudSession?.user.email}</span><button disabled={migrationRunning} onClick={() => void migrateThisDevice()}>{migrationRunning ? "Syncing…" : "Sync"}</button><button onClick={downloadDiagnostics}>Diagnostics</button><button onClick={() => void signOutCloud()}>Sign out</button></div></header>
+    <header className="topbar simplified-topbar"><button className="topbar-wordmark" onClick={() => setView("lectures")}>FCOM.lib</button><nav className="workspace-nav" aria-label="Primary navigation"><button className={view === "lectures" ? "active" : ""} onClick={() => setView("lectures")}>Lectures</button><button className={view === "slos" ? "active" : ""} onClick={() => setView("slos")}>SLOs</button><button onClick={() => setQuizOpen(true)}>Quiz</button></nav><label className="global-search"><AppIcon name="search"/><input aria-label="Search the curriculum" value={query} onChange={(event) => { setQuery(event.target.value); if (event.target.value) setView("search"); }}/></label><button className="upload-button" onClick={() => { setUploadReviewOpen(true); if (!uploadQueue.length) fileInput.current?.click(); }}><AppIcon name="upload"/>Add lectures</button><input ref={fileInput} type="file" accept="application/pdf" multiple hidden onChange={(event) => { if (event.target.files?.length) enqueueFiles(event.target.files); event.target.value = ""; }}/><div className="topbar-account"><span>{cloudSession?.user.email}</span><button disabled={migrationRunning} onClick={() => void migrateThisDevice()}>{migrationRunning ? "Syncing…" : "Sync"}</button><button onClick={downloadDiagnostics}>Diagnostics</button><button onClick={() => void signOutCloud()}>Sign out</button></div></header>
     {notice && <div className="notice" role="status" aria-live="polite"><span>{notice}</span><button aria-label="Dismiss" onClick={() => setNotice("")}><AppIcon name="x"/></button></div>}
     {cloudSession && !cloudHasData && localReady && <section className="cloud-migration-banner"><div><small>ONE-TIME CLOUD SETUP</small><strong>Move this device’s lectures into your private account</strong><p>This copies lecture PDFs, SLOs, notes, and marks. The originals remain on this computer.</p>{migrationProgress && <span>{migrationProgress.completed} of {migrationProgress.total}: {migrationProgress.label}</span>}</div><button disabled={migrationRunning} onClick={() => void migrateThisDevice()}>{migrationRunning ? "Migrating…" : "Migrate this device"}</button></section>}
     {uploadReviewOpen && <LectureImportReview jobs={uploadQueue} courses={searchCourseOptions} instructors={lecturerOptions} finalizing={uploadFinalizing} onUpdate={updateImportDraft} onRemove={removeImportJob} onAddMore={() => fileInput.current?.click()} onClose={() => setUploadReviewOpen(false)} onFinalize={() => void finalizeImports()}/>}
@@ -435,7 +437,7 @@ export default function Home() {
       <section className="viewer-stage">
         <div className="viewer-canvas-title"><strong>{viewerLecture.title}</strong><small>PDF page {selectedPage} of {viewerLecture.pages}</small></div>
         <div className="viewer-canvas-navigation" onPointerDown={(event) => { if (event.pointerType === "pen") event.preventDefault(); }}><button aria-label="Previous page" disabled={selectedPage <= 1} onClick={() => selectViewerPage(selectedPage - 1)}>←</button><span><b>{selectedPage}</b> / {viewerLecture.pages}</span><button aria-label="Next page" disabled={selectedPage >= viewerLecture.pages} onClick={() => selectViewerPage(selectedPage + 1)}>→</button></div>
-        <div className="viewer-canvas-actions" onPointerDown={(event) => { if (event.pointerType === "pen") event.preventDefault(); }}><div className="viewer-zoom"><button aria-label="Zoom out" disabled={pdfZoom <= .6} onClick={() => setPdfZoom((current) => Math.max(.6, Number((current - .1).toFixed(1))))}>−</button><button onClick={() => setPdfZoom(1)}>Fit {Math.round(pdfZoom * 100)}%</button><button aria-label="Zoom in" disabled={pdfZoom >= 4} onClick={() => setPdfZoom((current) => Math.min(4, Number((current + .1).toFixed(1))))}>+</button></div><button className={tocOpen ? "active" : ""} onClick={() => setTocOpen((current) => !current)}>Contents</button><button className={penEnabled ? "active" : ""} onClick={() => setPenEnabled((current) => !current)}>Pen</button><button className={currentSlideIsMarked ? "active" : ""} onClick={() => void toggleCurrentSlideMark()}>{currentSlideIsMarked ? "Marked" : "Mark"}</button><button className="viewer-delete-lecture" onClick={() => void removeCurrentLecture()}>Delete</button><button onClick={() => setViewerLectureId("")}>Close</button></div>
+        <div className="viewer-canvas-actions" onPointerDown={(event) => { if (event.pointerType === "pen") event.preventDefault(); }}><div className="viewer-zoom"><button aria-label="Zoom out" disabled={pdfZoom <= .6} onClick={() => setPdfZoom((current) => Math.max(.6, Number((current - .1).toFixed(1))))}>−</button><button onClick={() => setPdfZoom(1)}>Fit {Math.round(pdfZoom * 100)}%</button><button aria-label="Zoom in" disabled={pdfZoom >= 4} onClick={() => setPdfZoom((current) => Math.min(4, Number((current + .1).toFixed(1))))}>+</button></div><button className={tocOpen ? "active" : ""} onClick={() => setTocOpen((current) => !current)}>Contents</button><button className={penEnabled ? "active" : ""} onClick={() => setPenEnabled((current) => !current)}>Pen</button><button className={currentSlideIsMarked ? "active" : ""} onClick={() => void toggleCurrentSlideMark()}>{currentSlideIsMarked ? "Marked" : "Mark"}</button><button onClick={() => setQuizOpen(true)}>Start quiz</button><button className="viewer-delete-lecture" onClick={() => void removeCurrentLecture()}>Delete</button><button onClick={() => setViewerLectureId("")}>Close</button></div>
         <aside className={`viewer-toc ${tocOpen ? "" : "closed"}`} aria-hidden={!tocOpen}>
           <header><div><small>CONTENTS</small><h2>{viewerLecture.title}</h2></div><button aria-label="Close contents" onClick={() => setTocOpen(false)}>×</button></header>
           <nav ref={tocNavRef}>{tocLoading && <p>Building contents with Luna…</p>}{tocError && <div className="viewer-toc-error"><p>{tocError}</p><button onClick={() => void generateLectureToc(viewerLecture)}>Try again</button></div>}{!tocLoading && !tocError && viewerLecture.toc.map((item) => <button className={item.page === activeTocPage ? "active" : ""} key={`${item.page}-${item.title}`} onClick={() => { selectViewerPage(item.page); setTocOpen(false); }}><span>{item.page}</span><strong>{item.title}</strong></button>)}</nav>
@@ -444,5 +446,6 @@ export default function Home() {
         <div className="viewer-slide-workspace">{viewerFile && viewerFileLectureId === viewerLecture.id ? <PdfCanvasViewer key={`${viewerLecture.id}-${selectedPage}`} file={viewerFile} lectureId={viewerLecture.id} page={selectedPage} zoom={pdfZoom} inkStrokes={viewerPageInk} penEnabled={penEnabled} onInkChange={saveCurrentInk} onZoomChange={setPdfZoom}/> : <div className="slide-fallback"><h2>{viewerFileError ? "PDF unavailable" : selectedSlide.heading}</h2><p>{viewerFileError || selectedSlide.text || "Loading the selected lecture…"}</p></div>}</div>
       </section>
     </div>}
+    {quizOpen && <AdaptiveQuiz lectures={lectures} initialLectureId={viewerLecture?.id ?? ""} onExit={() => setQuizOpen(false)}/>}
   </section></main>;
 }
