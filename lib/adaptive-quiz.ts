@@ -10,6 +10,11 @@ export type QuizQuestion = {
 export type TopicProgress = { correct:number; incorrect:number; streak:number; lastSeen:number };
 export type QuizAttempt = { topicId:string; stem:string; selected:string; answer:string; correct:boolean; teachingPoint:string };
 export type QuizProgress = { answered:number; clinical:number; topics:Record<string,TopicProgress>; recent:QuizAttempt[] };
+export type QuizReservation = { topicId:string; kind:QuizKind; stem:string };
+export class QuizGenerationError extends Error {
+  quality:boolean;
+  constructor(message:string,quality=false){super(message);this.quality=quality;}
+}
 export const freshQuizProgress = ():QuizProgress => ({answered:0,clinical:0,topics:{},recent:[]});
 export const QUIZ_SOURCE_BUDGET = 140_000;
 
@@ -27,11 +32,11 @@ export function makeQuizSource(lecture:{id:string;title:string;slides:{page:numb
   return {id:lecture.id,title:lecture.title,slides,truncated};
 }
 
-export function nextQuestionPlan(topics:QuizTopic[], progress:QuizProgress) {
+export function nextQuestionPlan(topics:QuizTopic[], progress:QuizProgress, pending:QuizReservation[]=[]) {
   if (!topics.length) throw new Error("No quiz topics available.");
-  const n=progress.answered+1;
+  const n=progress.answered+pending.length+1;
   // Every completed prefix remains >=70% clinical, even if the user exits early.
-  const kind:QuizKind = progress.clinical < Math.ceil(n*7/10) ? "clinical" : "knowledge";
+  const kind:QuizKind = progress.clinical+pending.filter(q=>q.kind==="clinical").length < Math.ceil(n*7/10) ? "clinical" : "knowledge";
   const stats=(id:string)=>progress.topics[id]??{correct:0,incorrect:0,streak:0,lastSeen:0};
   const unseen=topics.filter(t=>stats(t.id).lastSeen===0);
   const last=progress.recent.at(-1);
@@ -45,6 +50,12 @@ export function nextQuestionPlan(topics:QuizTopic[], progress:QuizProgress) {
       const score=(t:QuizTopic)=>{const s=stats(t.id);const total=s.correct+s.incorrect;return 4*(s.incorrect+1)/(total+2)+(progress.answered-s.lastSeen)*.18-s.streak*.3+(total===0?1.5:0);};
       return score(b)-score(a) || a.id.localeCompare(b.id);
     })[0];
+  }
+  // Planned questions count toward coverage, never toward learner performance.
+  if(pending.length && (!last || last.correct || pending.filter(q=>q.topicId===topic.id).length>=2)){
+    const counts=(id:string)=>pending.filter(q=>q.topicId===id).length;
+    const minimum=Math.min(...topics.map(t=>counts(t.id)));
+    if(counts(topic.id)>minimum)topic=topics.filter(t=>counts(t.id)===minimum).sort((a,b)=>stats(a.id).lastSeen-stats(b.id).lastSeen)[0];
   }
   const s=stats(topic.id);
   const difficulty:1|2|3=s.streak>=2?3:s.incorrect>s.correct?1:2;

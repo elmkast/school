@@ -2,6 +2,10 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { freshQuizProgress, makeQuizSource, nextQuestionPlan, recordQuizAnswer, shuffleQuizChoices, validateQuizQuestion, type QuizProgress } from "../lib/adaptive-quiz.ts";
 import { createQuizHandler } from "../netlify/functions/quiz.mts";
+import { QuizBuffer, type BufferedQuizService } from "../lib/quiz-buffer.ts";
+import { QuizGenerationError } from "../lib/adaptive-quiz.ts";
+
+const settle=()=>new Promise(resolve=>setTimeout(resolve,0));
 
 const source={id:"test",title:"Enzymes",truncated:false,slides:[{page:9,heading:"Inhibition",text:"Competitive inhibition increases apparent Km while Vmax is unchanged. Noncompetitive inhibition decreases Vmax without changing Km."}]};
 const topics=[{id:"t1",title:"Inhibition",pages:[9]},{id:"t2",title:"Kinetics",pages:[9]},{id:"t3",title:"Catalysis",pages:[9]}];
@@ -79,4 +83,80 @@ test("per-instance request limit stops excess model calls",async()=>{
   for(let i=0;i<12;i++)assert.equal((await s.request(questionBody())).status,200);
   assert.equal((await s.request(questionBody())).status,429);
   assert.equal(s.calls.filter(c=>c.url.includes("openai")).length,12);
+});
+
+function bufferedService(){
+  const calls:{progress:QuizProgress;number:number;resolve:(q:ReturnType<typeof q>)=>void;reject:(error:Error)=>void;signal:AbortSignal;question:ReturnType<typeof q>}[]=[];
+  const service:BufferedQuizService={async topics(){return topics;},question(s,t,p,signal,pending=[]){
+    const plan=nextQuestionPlan(t,p,pending);
+    const question=validateQuizQuestion({...rawQuestion(),stem:`Case ${plan.number}: which change in the apparent kinetic parameters best explains the findings?`},plan,s);
+    return new Promise((resolve,reject)=>calls.push({progress:p,number:plan.number,resolve,reject,signal,question}));
+  }};
+  return {service,calls};
+}
+async function prime(buffer:QuizBuffer,s:ReturnType<typeof bufferedService>){
+  await buffer.start();
+  // Deliberately complete pairs out of order.
+  for(let i=0;i<4;i+=2){s.calls[i+1].resolve(s.calls[i+1].question);s.calls[i].resolve(s.calls[i].question);await settle();}
+  assert.equal(buffer.snapshot().current,null);
+  s.calls[4].resolve(s.calls[4].question);await settle();
+}
+test("buffer prepares five, preserves order, and refills once per actual answer",async()=>{
+  const s=bufferedService();const b=new QuizBuffer(source,s.service,()=>{});
+  await prime(b,s);
+  assert.equal(s.calls.length,5);assert.equal(b.snapshot().ready,5);assert.equal(b.snapshot().progress.answered,0);
+  const first=b.snapshot().current!;assert.match(first.stem,/Case 1:/);
+  b.answer(first.id,first.correctIndex===0?1:0);
+  assert.equal(s.calls.length,6);assert.equal(s.calls[5].progress.answered,1);
+  assert.equal(Object.values(s.calls[5].progress.topics).reduce((n,t)=>n+t.incorrect,0),1);
+  assert.match(b.snapshot().current!.stem,/Case 2:/);assert.equal(b.snapshot().ready,4);
+  assert.throws(()=>b.answer(first.id,0));
+  b.dispose();
+});
+test("rapid answers consume ready questions without aborting refill requests",async()=>{
+  const s=bufferedService();const b=new QuizBuffer(source,s.service,()=>{});await prime(b,s);
+  for(let i=0;i<5;i++){const current=b.snapshot().current!;b.answer(current.id,current.correctIndex);}
+  assert.equal(b.snapshot().current,null);assert.equal(s.calls.length,7);assert.equal(s.calls[5].signal.aborted,false);
+  s.calls[6].resolve(s.calls[6].question);await settle();assert.equal(b.snapshot().current,null);
+  s.calls[5].resolve(s.calls[5].question);await settle();assert.match(b.snapshot().current!.stem,/Case 6:/);
+  assert.equal(b.snapshot().progress.answered,5);b.dispose();
+});
+test("quality rejection retries automatically without changing score; exit cancels pending work",async()=>{
+  const s=bufferedService();let updates=0;const b=new QuizBuffer(source,s.service,()=>{updates++;},async()=>{});
+  await b.start();s.calls[0].reject(new QuizGenerationError("Bad citation",true));await settle();
+  assert.equal(s.calls.length,3);assert.equal(s.calls[2].number,1);assert.equal(b.snapshot().error,"");assert.equal(b.snapshot().progress.answered,0);
+  b.dispose();const before=updates;
+  for(const call of s.calls){assert.ok(call.signal.aborted);call.resolve(call.question);}
+  await settle();assert.equal(updates,before);assert.equal(s.calls.length,3);
+});
+test("automatic quality retry budget is finite and does not retry authentication failures",async()=>{
+  let attempts=0;
+  const failing:BufferedQuizService={async topics(){return topics;},async question(){attempts++;throw new QuizGenerationError("Invalid",true);}};
+  const b=new QuizBuffer(source,failing,()=>{},async()=>{});await b.start();
+  for(let i=0;i<10;i++)await settle();
+  assert.equal(attempts,15);assert.match(b.snapshot().error,/automatic retries/);b.dispose();
+  attempts=0;
+  const auth=new QuizBuffer(source,{...failing,async question(){attempts++;throw new QuizGenerationError("Sign in again");}},()=>{});
+  await auth.start();for(let i=0;i<5;i++)await settle();
+  assert.equal(attempts,5);assert.match(auth.snapshot().error,/Sign in/);auth.dispose();
+});
+test("planned questions maintain the clinical ratio without inventing answers",()=>{
+  let p=freshQuizProgress();const queue:ReturnType<typeof q>[]=[];
+  for(let i=0;i<100;i++){
+    while(queue.length<5){
+      const pending=queue.map(q=>({topicId:q.topicId,kind:q.kind,stem:q.stem}));
+      queue.push(validateQuizQuestion(rawQuestion(),nextQuestionPlan(topics,p,pending),source));
+    }
+    const current=queue.shift()!;p=recordQuizAnswer(p,current,i%2);
+    assert.ok(p.clinical/p.answered>=.7);
+    assert.equal(Object.values(p.topics).reduce((n,t)=>n+t.correct+t.incorrect,0),i+1);
+  }
+});
+test("server accounts for queued questions and marks quality failures as retryable",async()=>{
+  const pending=[{topicId:"t1",kind:"clinical",stem:""},{topicId:"t2",kind:"clinical",stem:""},{topicId:"t3",kind:"clinical",stem:""}];
+  const s=setup();const r=await s.request({...questionBody(),pending});assert.equal(r.status,200);assert.equal((await r.json()).question.kind,"knowledge");
+  const input=JSON.parse(String(s.calls[1].body!.input));assert.equal(input.questionNumber,4);assert.equal(input.queued.length,3);
+  const bad=setup([{...rawQuestion(),correctIndex:44},{...rawQuestion(),correctIndex:44}]);
+  assert.equal((await (await bad.request(questionBody())).json()).code,"QUALITY_REJECTED");
+  const invalid=setup();assert.equal((await invalid.request({...questionBody(),pending:Array(5).fill(pending[0])})).status,400);
 });

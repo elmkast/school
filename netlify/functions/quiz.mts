@@ -1,8 +1,8 @@
-import { nextQuestionPlan, validateQuizQuestion, type QuizSource, type QuizTopic, type QuizProgress } from "../../lib/adaptive-quiz.ts";
+import { nextQuestionPlan, validateQuizQuestion, type QuizSource, type QuizTopic, type QuizProgress, type QuizReservation } from "../../lib/adaptive-quiz.ts";
 
 declare const Netlify:{env:{get(name:string):string|undefined}};
 type Dependencies={env(name:string):string|undefined;fetch:typeof fetch};
-class QuizError extends Error { status:number; constructor(message:string,status=400){super(message);this.status=status;} }
+class QuizError extends Error { status:number; code:string; constructor(message:string,status=400,code=""){super(message);this.status=status;this.code=code;} }
 const obj=(v:unknown):Record<string,unknown>=>{if(!v||typeof v!=="object"||Array.isArray(v))throw new QuizError("Invalid quiz request.");return v as Record<string,unknown>;};
 const str=(v:unknown,max:number)=>{if(typeof v!=="string"||v.length>max)throw new QuizError("Invalid quiz text.");return v;};
 const integer=(v:unknown,max=1_000_000)=>{if(typeof v!=="number"||!Number.isInteger(v)||v<0||v>max)throw new QuizError("Invalid quiz count.");return v;};
@@ -44,11 +44,11 @@ async function runLuna(d:Dependencies,request:Request,instructions:string,input:
   catch(error){if(request.signal.aborted)throw new QuizError("Quiz request cancelled.",499);if(error instanceof Error&&(error.name==="TimeoutError"||error.name==="AbortError"))throw new QuizError("Luna took too long. Retry this question.",504);throw new QuizError("Could not reach Luna. Retry when your connection is available.",502);}
   if(!response.ok)throw new QuizError(response.status===429?"Luna is busy or its usage limit was reached. Wait a moment and retry.":"Luna could not generate this question. Please retry.",response.status===429?429:502);
   const data=obj(await response.json());
-  if(data.status&&data.status!=="completed")throw new QuizError("Luna's response was incomplete. Please retry.",502);
+  if(data.status&&data.status!=="completed")throw new QuizError("Luna's response was incomplete.",502,"QUALITY_REJECTED");
   const content=Array.isArray(data.output)?data.output.flatMap(item=>Array.isArray(item?.content)?item.content:[]):[];
   if(content.some(c=>c.type==="refusal"))throw new QuizError("Luna declined this question request. You can exit or retry.",422);
   const output=typeof data.output_text==="string"?data.output_text:content.filter(c=>c.type==="output_text").map(c=>c.text??"").join("");
-  try{return JSON.parse(output);}catch{throw new QuizError("Luna returned unreadable question data. Please retry.",502);}
+  try{return JSON.parse(output);}catch{throw new QuizError("Luna returned unreadable question data.",502,"QUALITY_REJECTED");}
 }
 
 // Best-effort per-instance protection; authentication is verified on every request.
@@ -77,7 +77,9 @@ export function createQuizHandler(d:Dependencies){
         return reply({topics:parseTopics(obj(output).topics,source)});
       }
       if(body.action!=="question")throw new QuizError("Unknown quiz action.");
-      const topics=parseTopics(body.topics,source);const progress=parseProgress(body.progress,topics);const plan=nextQuestionPlan(topics,progress);
+      const topics=parseTopics(body.topics,source);const progress=parseProgress(body.progress,topics);
+      const pending:QuizReservation[]=array(body.pending??[],4).map(value=>{const q=obj(value);const topicId=str(q.topicId,50);if(!topics.some(t=>t.id===topicId)||(q.kind!=="clinical"&&q.kind!=="knowledge"))throw new QuizError("Invalid queued question.");return {topicId,kind:q.kind,stem:str(q.stem,2400)};});
+      const plan=nextQuestionPlan(topics,progress,pending);
       const focusSlides=source.slides.filter(s=>plan.topic.pages.includes(s.page));
       const prompt=`Write exactly ONE new multiple-choice question. Required style: ${plan.kind==="clinical"?"NBME-style clinical vignette AND second-order reasoning. At least 45 words of clinically relevant history/findings in vignette. Require the learner to infer a diagnosis/process from clues, THEN infer a mechanism, consequence, or intervention from the lecture. Do not name the diagnosis if identifying it is the first inference. Explain the two linked inferences in reasoningSteps.":"A focused knowledge or application check. Use empty vignette when unnecessary; include at least one teaching step."}
 Exactly 4 or 5 mutually exclusive, plausible answer choices; a single best correct answer with zero-based correctIndex. Use four unless a fifth is genuinely plausible. No all/none of the above, letter-dependent answers, or answer-length giveaways. Do not reference option letters in rationales (the app shuffles them). Put the case in vignette and the lead-in in stem; do not repeat the case. Each choice gets a brief rationale. Provide a concise explanation and teachingPoint, exact sourcePages, and a verbatim sourceQuote (20–1000 characters) supporting the tested concept. Do not fabricate citations.
@@ -86,16 +88,16 @@ Adapt to the supplied recent wrong and right answers. Address misconceptions wit
       let lastError="";
       // One bounded repair for schema/grounding failures; never advance quiz history on failure.
       for(let attempt=0;attempt<2;attempt++){
-        const output=await runLuna(d,request,`${prompt}${lastError?`\nRepair the previous output problem: ${lastError}`:""}`,JSON.stringify({lecture:source.title,topic:plan.topic,slides:focusSlides,performance:progress.topics[plan.topic.id]??null,recent:progress.recent}),questionSchema,"adaptive_question");
+        const output=await runLuna(d,request,`${prompt}\nThis is question ${plan.number} in the session. Queued questions are ungraded, not learner outcomes. Use a distinct case and tested angle from queued stems.${lastError?`\nRepair the previous output problem: ${lastError}`:""}`,JSON.stringify({lecture:source.title,topic:plan.topic,slides:focusSlides,questionNumber:plan.number,queued:pending,performance:progress.topics[plan.topic.id]??null,recent:progress.recent}),questionSchema,"adaptive_question");
         try{
           const question=validateQuizQuestion(output,plan,{...source,slides:focusSlides});
           const normalized=(s:string)=>s.toLowerCase().replace(/\W/g,"");
-          if(progress.recent.some(a=>normalized(a.stem)===normalized(`${question.vignette} ${question.stem}`)))throw new Error("Question repeats a recent question.");
+          if([...progress.recent,...pending].some(a=>a.stem&&normalized(a.stem)===normalized(`${question.vignette} ${question.stem}`)))throw new Error("Question repeats a recent question.");
           return reply({question});
         }catch(error){lastError=error instanceof Error?error.message:"Invalid question.";}
       }
-      throw new QuizError("Luna's question did not pass the answer/source checks. Retry to generate a replacement.",502);
-    }catch(error){return reply({error:error instanceof QuizError?error.message:"Quiz generation failed. Please retry."},error instanceof QuizError?error.status:502);}
+      throw new QuizError("Luna's question did not pass the answer/source checks.",502,"QUALITY_REJECTED");
+    }catch(error){return reply({error:error instanceof QuizError?error.message:"Quiz generation failed. Please retry.",code:error instanceof QuizError?error.code:""},error instanceof QuizError?error.status:502);}
   };
 }
 export default createQuizHandler({env:name=>Netlify.env.get(name),fetch:(...args)=>fetch(...args)});
