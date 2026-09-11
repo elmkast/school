@@ -44,7 +44,7 @@ FCOM.lib is a restrained scientific workspace: neutral surfaces, compact control
 
 - Quiz opens a lecture selector; Start quiz in the reader preselects the open lecture.
 - Five questions are prepared at startup. One question is shown at a time; each answer replenishes the queue in the background, and feedback remains visible until Next question is clicked.
-- Quality rejections automatically retry within a finite budget. Queued questions preserve order and are not counted as learner performance.
+- Quality rejections and temporary service failures recover automatically within a finite budget, with no manual Retry generation button. Permanent/exhausted failures stop new generation and preserve prepared questions. Queued questions preserve order and are not counted as learner performance.
 - Exit is always available and clears session-only state. This does not restore the removed question bank.
 - UI review includes the actual dialog with no-API fixtures. See `ADAPTIVE_QUIZ.md` for generation rules, verification, and deployment requirements.
 

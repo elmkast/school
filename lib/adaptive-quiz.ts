@@ -13,7 +13,18 @@ export type QuizProgress = { answered:number; clinical:number; topics:Record<str
 export type QuizReservation = { topicId:string; kind:QuizKind; stem:string };
 export class QuizGenerationError extends Error {
   quality:boolean;
-  constructor(message:string,quality=false){super(message);this.quality=quality;}
+  code:string;
+  issues:string[];
+  retryAfterMs:number;
+  retryable:boolean;
+  constructor(message:string,quality=false,options:{code?:string;issues?:string[];retryAfterMs?:number;retryable?:boolean}={}){
+    super(message);this.quality=quality;this.code=options.code??(quality?"QUALITY_REJECTED":"UNAVAILABLE");this.issues=options.issues??[];this.retryAfterMs=options.retryAfterMs??0;this.retryable=options.retryable??quality;
+  }
+}
+export type QuizRetryContext={attempt:number;issues:string[]};
+export class QuizValidationError extends Error {
+  code:string;
+  constructor(code:string,message:string){super(message);this.code=code;}
 }
 export const freshQuizProgress = ():QuizProgress => ({answered:0,clinical:0,topics:{},recent:[]});
 export const QUIZ_SOURCE_BUDGET = 140_000;
@@ -80,19 +91,19 @@ export function shuffleQuizChoices(q:QuizQuestion, random:()=>number=Math.random
 export function quizCorrectCount(progress:QuizProgress){return Object.values(progress.topics).reduce((sum,s)=>sum+s.correct,0);}
 
 export function validateQuizQuestion(value:unknown, plan:ReturnType<typeof nextQuestionPlan>, source:QuizSource):QuizQuestion {
-  if(!value||typeof value!=="object") throw new Error("Luna returned an invalid question.");
+  if(!value||typeof value!=="object") throw new QuizValidationError("QUESTION_SHAPE","Luna returned an invalid question.");
   const q=value as Record<string,unknown>;
   const string=(v:unknown,min:number,max:number)=>typeof v==="string"&&v.trim().length>=min&&v.length<=max;
-  if(!string(q.stem,20,1800)||!string(q.explanation,30,5000)||!string(q.teachingPoint,10,800)||!string(q.sourceQuote,20,1000)) throw new Error("Luna returned incomplete question feedback.");
-  if(typeof q.vignette!=="string"||q.vignette.length>5000) throw new Error("Luna returned an invalid vignette.");
-  if(plan.kind==="clinical"&&q.vignette.trim().split(/\s+/).length<45) throw new Error("The question did not include a sufficient clinical vignette.");
-  if(!Array.isArray(q.reasoningSteps)||q.reasoningSteps.length<(plan.kind==="clinical"?2:1)||q.reasoningSteps.length>4||!q.reasoningSteps.every(s=>string(s,15,1000))) throw new Error("The question did not include the required reasoning links.");
-  if(!Array.isArray(q.choices)||q.choices.length<4||q.choices.length>5||!q.choices.every(c=>c&&typeof c==="object"&&string(c.text,1,700)&&string(c.rationale,10,1800))) throw new Error("The question must have four or five explained answer choices.");
-  if(new Set(q.choices.map(c=>c.text.trim().toLowerCase())).size!==q.choices.length) throw new Error("Luna returned duplicate answer choices.");
-  if(!Number.isInteger(q.correctIndex)||Number(q.correctIndex)<0||Number(q.correctIndex)>=q.choices.length) throw new Error("Luna returned an invalid correct answer.");
-  if(!Array.isArray(q.sourcePages)||!q.sourcePages.length||q.sourcePages.length>6||!q.sourcePages.every(p=>source.slides.some(s=>s.page===p))) throw new Error("Luna cited a slide outside the lecture.");
+  if(!string(q.stem,20,1800)||!string(q.explanation,30,5000)||!string(q.teachingPoint,10,800)||!string(q.sourceQuote,20,1000)) throw new QuizValidationError("FEEDBACK_FIELDS","Luna returned incomplete question feedback.");
+  if(typeof q.vignette!=="string"||q.vignette.length>5000) throw new QuizValidationError("VIGNETTE_FORMAT","Luna returned an invalid vignette.");
+  if(plan.kind==="clinical"&&q.vignette.trim().split(/\s+/).length<45) throw new QuizValidationError("VIGNETTE_LENGTH","The question did not include a sufficient clinical vignette.");
+  if(!Array.isArray(q.reasoningSteps)||q.reasoningSteps.length<(plan.kind==="clinical"?2:1)||q.reasoningSteps.length>4||!q.reasoningSteps.every(s=>string(s,15,1000))) throw new QuizValidationError("REASONING_STEPS","The question did not include the required reasoning links.");
+  if(!Array.isArray(q.choices)||q.choices.length<4||q.choices.length>5||!q.choices.every(c=>c&&typeof c==="object"&&string(c.text,1,700)&&string(c.rationale,10,1800))) throw new QuizValidationError("CHOICES_FORMAT","The question must have four or five explained answer choices.");
+  if(new Set(q.choices.map(c=>c.text.trim().toLowerCase())).size!==q.choices.length) throw new QuizValidationError("DUPLICATE_CHOICES","Luna returned duplicate answer choices.");
+  if(!Number.isInteger(q.correctIndex)||Number(q.correctIndex)<0||Number(q.correctIndex)>=q.choices.length) throw new QuizValidationError("ANSWER_INDEX","Luna returned an invalid correct answer.");
+  if(!Array.isArray(q.sourcePages)||!q.sourcePages.length||q.sourcePages.length>6||!q.sourcePages.every(p=>source.slides.some(s=>s.page===p))) throw new QuizValidationError("SOURCE_PAGES","Luna cited a slide outside the lecture.");
   const normalize=(s:string)=>s.replace(/\s+/g," ").trim().toLowerCase();
-  if(!source.slides.some(s=>(q.sourcePages as number[]).includes(s.page)&&normalize(s.text).includes(normalize(q.sourceQuote as string)))) throw new Error("Luna's supporting quote could not be verified against the slide text.");
+  if(!source.slides.some(s=>(q.sourcePages as number[]).includes(s.page)&&normalize(s.text).includes(normalize(q.sourceQuote as string)))) throw new QuizValidationError("SOURCE_QUOTE","Luna's supporting quote could not be verified against the slide text.");
   return {id:crypto.randomUUID(),topicId:plan.topic.id,kind:plan.kind,difficulty:plan.difficulty,
     vignette:q.vignette,stem:(q.stem as string).trim(),choices:q.choices,correctIndex:q.correctIndex as number,
     explanation:q.explanation as string,teachingPoint:q.teachingPoint as string,reasoningSteps:q.reasoningSteps as string[],sourcePages:q.sourcePages as number[],sourceQuote:q.sourceQuote as string};

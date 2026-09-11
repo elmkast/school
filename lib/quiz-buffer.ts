@@ -1,12 +1,14 @@
-import { freshQuizProgress, nextQuestionPlan, recordQuizAnswer, shuffleQuizChoices, validateQuizQuestion, QuizGenerationError, type QuizProgress, type QuizQuestion, type QuizReservation, type QuizSource, type QuizTopic } from "./adaptive-quiz.ts";
+import { freshQuizProgress, nextQuestionPlan, recordQuizAnswer, shuffleQuizChoices, validateQuizQuestion, QuizGenerationError, QuizValidationError, type QuizRetryContext, type QuizProgress, type QuizQuestion, type QuizReservation, type QuizSource, type QuizTopic } from "./adaptive-quiz.ts";
 
 export type BufferedQuizService = {
-  topics(source:QuizSource,signal:AbortSignal):Promise<QuizTopic[]>;
-  question(source:QuizSource,topics:QuizTopic[],progress:QuizProgress,signal:AbortSignal,pending?:QuizReservation[]):Promise<QuizQuestion>;
+  topics(source:QuizSource,signal:AbortSignal,retry?:QuizRetryContext):Promise<QuizTopic[]>;
+  question(source:QuizSource,topics:QuizTopic[],progress:QuizProgress,signal:AbortSignal,pending?:QuizReservation[],retry?:QuizRetryContext):Promise<QuizQuestion>;
+  diagnostic?(event:Record<string,unknown>):void;
 };
 type Slot = {plan:ReturnType<typeof nextQuestionPlan>; question?:QuizQuestion; state:"waiting"|"loading"|"ready"|"failed"; error?:string};
 export type QuizBufferSnapshot = {progress:QuizProgress; current:QuizQuestion|null; ready:number; initialized:boolean; busy:boolean; error:string; retrying:boolean};
 export const QUIZ_BUFFER_SIZE=5;
+export const QUIZ_MAX_ATTEMPTS=6;
 const pause=(ms:number,signal:AbortSignal)=>new Promise<void>((resolve,reject)=>{
   if(signal.aborted){reject(new Error("Cancelled"));return;}
   const cancel=()=>{clearTimeout(timer);reject(new Error("Cancelled"));};
@@ -36,10 +38,29 @@ export class QuizBuffer {
     return {progress:this.progress,current:this.initialized?this.slots[0]?.question??null:null,ready:this.slots.filter(s=>s.state==="ready").length,initialized:this.initialized,busy:this.loadingTopics||this.active>0,error:this.error||this.slots.find(s=>s.state==="failed")?.error||"",retrying:this.retries>0};
   }
   private emit(){if(!this.controller.signal.aborted)this.changed(this.snapshot());}
+  private report(event:Record<string,unknown>){try{this.service.diagnostic?.({version:"evidence-v2",...event});}catch{/* Diagnostics never interrupt a quiz. */}}
+  private async recover<T>(operation:(retry:QuizRetryContext)=>Promise<T>,stage:string,questionNumber=0):Promise<T>{
+    const signal=this.controller.signal;let issues:string[]=[];
+    for(let attempt=0;attempt<QUIZ_MAX_ATTEMPTS;attempt++){
+      if(signal.aborted||this.error)throw new Error(this.error||"Cancelled");
+      try{const result=await operation({attempt,issues});if(attempt>0)this.report({event:"generation-recovered",stage,questionNumber,attempt:attempt+1});return result;}
+      catch(error){
+        if(signal.aborted)throw error;
+        const e=error instanceof QuizGenerationError?error:new QuizGenerationError("Quiz generation is unavailable.");
+        issues=e.issues;
+        this.report({event:"generation-failed",stage,questionNumber,attempt:attempt+1,code:e.code,issues});
+        if(!e.retryable)throw e;
+        if(attempt===QUIZ_MAX_ATTEMPTS-1)throw new Error("Generation stopped after repeated failures to avoid further charges. Any prepared questions are still available. Details are saved in Diagnostics.");
+        this.retries++;this.emit();
+        try{await this.sleep(Math.max([2000,5000,10000,20000,30000][attempt],e.retryAfterMs),signal);}finally{this.retries--;}
+      }
+    }
+    throw new Error("Generation stopped.");
+  }
   async start(){
     if(this.begun||this.controller.signal.aborted)return;
     this.begun=true;this.loadingTopics=true;this.error="";this.emit();
-    try{this.topics=await this.service.topics(this.source,this.controller.signal);if(!this.topics.length)throw new Error("No lecture topics available.");}
+    try{this.topics=await this.recover(async retry=>{const topics=await this.service.topics(this.source,this.controller.signal,retry);if(!topics.length)throw new QuizGenerationError("No lecture topics available.",true,{issues:["TOPICS_INVALID"]});return topics;},"topics");}
     catch(error){if(!this.controller.signal.aborted)this.error=error instanceof Error?error.message:"Could not read lecture topics.";}
     finally{this.loadingTopics=false;}
     if(this.controller.signal.aborted)return;
@@ -53,37 +74,28 @@ export class QuizBuffer {
     this.pump();
   }
   private pump(){
-    if(this.controller.signal.aborted)return;
+    if(this.controller.signal.aborted||this.error)return;
     // Two concurrent requests provide headroom without a five-call burst.
     while(this.active<2){const slot=this.slots.find(s=>s.state==="waiting");if(!slot)break;slot.state="loading";this.active++;void this.generate(slot);}
   }
   private async generate(slot:Slot){
     const signal=this.controller.signal;
     try{
-      for(let attempt=0;attempt<3;attempt++){
-        if(signal.aborted)return;
+      await this.recover(async retry=>{
         const pending=this.reservations(this.slots.slice(0,this.slots.indexOf(slot)));
         const progress=this.progress;
         slot.plan=nextQuestionPlan(this.topics,progress,pending);
+        const result=await this.service.question(this.source,this.topics,progress,signal,pending,retry);
+        if(signal.aborted)return;
+        let checked:QuizQuestion;
         try{
-          const result=await this.service.question(this.source,this.topics,progress,signal,pending);
-          if(signal.aborted)return;
-          let checked:QuizQuestion;
-          try{
-            checked=validateQuizQuestion(result,slot.plan,this.source);
-            const key=signature(`${checked.vignette} ${checked.stem}`.slice(0,2400));
-            if(this.progress.recent.some(q=>signature(q.stem)===key)||this.slots.some(s=>s!==slot&&s.question&&signature(`${s.question.vignette} ${s.question.stem}`.slice(0,2400))===key))throw new Error("Question repeated an existing case.");
-          }catch(error){throw new QuizGenerationError(error instanceof Error?error.message:"Invalid question.",true);}
-          slot.question=shuffleQuizChoices(checked);slot.state="ready";return;
-        }catch(error){
-          if(signal.aborted)return;
-          if(!(error instanceof QuizGenerationError)||!error.quality)throw error;
-          if(attempt===2)throw new Error("Luna could not produce a valid question after automatic retries. Your prepared questions and progress are safe.");
-          this.retries++;this.emit();
-          try{await this.sleep((attempt+1)*1000,signal);}finally{this.retries--;}
-        }
-      }
-    }catch(error){slot.state="failed";slot.error=error instanceof Error?error.message:"Question generation failed.";}
+          checked=validateQuizQuestion(result,slot.plan,this.source);
+          const key=signature((checked.vignette+" "+checked.stem).slice(0,2400));
+          if(this.progress.recent.some(q=>signature(q.stem)===key)||this.slots.some(s=>s!==slot&&s.question&&signature((s.question.vignette+" "+s.question.stem).slice(0,2400))===key))throw new QuizValidationError("DUPLICATE_QUESTION","Question repeated an existing case.");
+        }catch(error){throw new QuizGenerationError("Replacing an invalid question.",true,{issues:[error instanceof QuizValidationError?error.code:"QUESTION_SHAPE"]});}
+        slot.question=shuffleQuizChoices(checked);slot.state="ready";
+      },"question",slot.plan.number);
+    }catch(error){slot.state="failed";slot.error=error instanceof Error?error.message:"Question generation failed.";if(!signal.aborted)this.error=slot.error;}
     finally{
       this.active--;
       if(!signal.aborted){
@@ -97,12 +109,6 @@ export class QuizBuffer {
     if(!question||question.id!==questionId)throw new Error("This question has already been submitted.");
     this.progress=recordQuizAnswer(this.progress,question,index);
     this.slots.shift();this.fill();this.emit();
-  }
-  retry(){
-    if(this.controller.signal.aborted)return;
-    if(this.error){this.begun=false;void this.start();return;}
-    for(const s of this.slots)if(s.state==="failed"){s.state="waiting";s.error="";}
-    this.pump();this.emit();
   }
   dispose(){this.controller.abort();this.slots=[];this.progress=freshQuizProgress();}
 }
