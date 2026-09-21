@@ -1,4 +1,4 @@
-# FCOM.lib, circa 1997
+# lectures.lib, circa 1997
 
 September 7, 2026. Review-only proposal at `/ui-review`, selected by default.
 

@@ -97,6 +97,9 @@ export function validateQuizQuestion(value:unknown, plan:ReturnType<typeof nextQ
   if(!string(q.stem,20,1800)||!string(q.explanation,30,5000)||!string(q.teachingPoint,10,800)||!string(q.sourceQuote,20,1000)) throw new QuizValidationError("FEEDBACK_FIELDS","Luna returned incomplete question feedback.");
   if(typeof q.vignette!=="string"||q.vignette.length>5000) throw new QuizValidationError("VIGNETTE_FORMAT","Luna returned an invalid vignette.");
   if(plan.kind==="clinical"&&q.vignette.trim().split(/\s+/).length<45) throw new QuizValidationError("VIGNETTE_LENGTH","The question did not include a sufficient clinical vignette.");
+  if(q.vignette.includes("?")||/(?:^|[.!]\s+)(?:which|what|how|why|who|where|select|choose|identify|determine|name|describe|explain|predict|calculate)\b/i.test(q.vignette)) throw new QuizValidationError("VIGNETTE_QUESTION","The clinical case must contain facts only, without a question or lead-in.");
+  const stem=(q.stem as string).trim();
+  if(!stem.endsWith("?")||(stem.match(/\?/g)?.length??0)!==1) throw new QuizValidationError("STEM_QUESTION","The question must have exactly one lead-in, ending with one question mark.");
   if(!Array.isArray(q.reasoningSteps)||q.reasoningSteps.length<(plan.kind==="clinical"?2:1)||q.reasoningSteps.length>4||!q.reasoningSteps.every(s=>string(s,15,1000))) throw new QuizValidationError("REASONING_STEPS","The question did not include the required reasoning links.");
   if(!Array.isArray(q.choices)||q.choices.length<4||q.choices.length>5||!q.choices.every(c=>c&&typeof c==="object"&&string(c.text,1,700)&&string(c.rationale,10,1800))) throw new QuizValidationError("CHOICES_FORMAT","The question must have four or five explained answer choices.");
   if(new Set(q.choices.map(c=>c.text.trim().toLowerCase())).size!==q.choices.length) throw new QuizValidationError("DUPLICATE_CHOICES","Luna returned duplicate answer choices.");
@@ -105,6 +108,6 @@ export function validateQuizQuestion(value:unknown, plan:ReturnType<typeof nextQ
   const normalize=(s:string)=>s.replace(/\s+/g," ").trim().toLowerCase();
   if(!source.slides.some(s=>(q.sourcePages as number[]).includes(s.page)&&normalize(s.text).includes(normalize(q.sourceQuote as string)))) throw new QuizValidationError("SOURCE_QUOTE","Luna's supporting quote could not be verified against the slide text.");
   return {id:crypto.randomUUID(),topicId:plan.topic.id,kind:plan.kind,difficulty:plan.difficulty,
-    vignette:q.vignette,stem:(q.stem as string).trim(),choices:q.choices,correctIndex:q.correctIndex as number,
+    vignette:q.vignette,stem,choices:q.choices,correctIndex:q.correctIndex as number,
     explanation:q.explanation as string,teachingPoint:q.teachingPoint as string,reasoningSteps:q.reasoningSteps as string[],sourcePages:q.sourcePages as number[],sourceQuote:q.sourceQuote as string};
 }

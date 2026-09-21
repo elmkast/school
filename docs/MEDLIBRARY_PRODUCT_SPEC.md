@@ -1,10 +1,10 @@
-# FCOM.lib product specification
+# lectures.lib product specification
 
 Last updated: August 29, 2026
 
 ## Product direction
 
-FCOM.lib is a private, AI-assisted medical curriculum workspace. Its active product surface is intentionally narrow: a visual lecture archive, a slide reader with Luna and personal study tools, curriculum search, and session learning objectives (SLOs).
+lectures.lib is a private, AI-assisted medical curriculum workspace. Its active product surface is intentionally narrow: a visual lecture archive, a slide reader with Luna and personal study tools, curriculum search, and session learning objectives (SLOs).
 
 The current simplification is deliberate. Pre-reads and Question Bank were removed after prototyping because their first implementations added more interface and maintenance cost than study value. Question Bank may return later as a newly designed feature; the retired implementation is not a compatibility target.
 

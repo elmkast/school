@@ -1,4 +1,4 @@
-# FCOM.lib UX system
+# lectures.lib UX system
 
 Last updated: August 29, 2026
 
@@ -6,12 +6,12 @@ Current audit and unadopted prototypes: [September UI review](UI_REVIEW_2026-09.
 
 ## Design language
 
-FCOM.lib is a restrained scientific workspace: neutral surfaces, compact controls, strong typography, square geometry, and minimal decorative iconography. The lecture archive is deliberately darker and more visual than the study workspaces, while controls remain consistent and functional.
+lectures.lib is a restrained scientific workspace: neutral surfaces, compact controls, strong typography, square geometry, and minimal decorative iconography. The lecture archive is deliberately darker and more visual than the study workspaces, while controls remain consistent and functional.
 
 ## Application frame
 
 - No sidebar.
-- Sticky top bar with FCOM.lib, Lectures, SLOs, search, import, and compact account utilities.
+- Sticky top bar with lectures.lib, Lectures, SLOs, search, import, and compact account utilities.
 - Exactly one active primary destination.
 - Search becomes active when text is entered; clearing search does not create another permanent navigation item.
 

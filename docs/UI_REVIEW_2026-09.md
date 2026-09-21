@@ -1,4 +1,4 @@
-# FCOM.lib — September UI review
+# lectures.lib — September UI review
 
 Date: September 5, 2026  
 Status: interactive proposals, not adopted production designs  

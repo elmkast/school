@@ -67,7 +67,7 @@ function diagnosticSnapshot() {
   const memory = performance as Performance & { memory?: { jsHeapSizeLimit?: number; totalJSHeapSize?: number; usedJSHeapSize?: number } };
   return {
     exportedAt: new Date().toISOString(),
-    app: "FCOM.lib",
+    app: "lectures.lib",
     version: "0.1.0",
     location: window.location.origin + window.location.pathname,
     online: navigator.onLine,
@@ -89,7 +89,7 @@ export function downloadDiagnostics() {
   const url = URL.createObjectURL(blob);
   const anchor = document.createElement("a");
   anchor.href = url;
-  anchor.download = `fcom-lib-diagnostics-${new Date().toISOString().replace(/[:.]/g, "-")}.json`;
+  anchor.download = `lectures-lib-diagnostics-${new Date().toISOString().replace(/[:.]/g, "-")}.json`;
   document.body.appendChild(anchor);
   anchor.click();
   anchor.remove();

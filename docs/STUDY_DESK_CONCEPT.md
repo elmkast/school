@@ -1,4 +1,4 @@
-# Study desk — a from-scratch FCOM.lib concept
+# Study desk — a from-scratch lectures.lib concept
 
 September 7, 2026 · Proposal only · `/ui-review` → Study desk
 

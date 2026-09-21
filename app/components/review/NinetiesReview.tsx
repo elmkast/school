@@ -82,6 +82,6 @@ export function NinetiesReview() {
         <div className="retro-actions"><button disabled={!selected.length} onClick={()=>{setSession(selected.map(o=>o.id));setPosition(0);setDone(false);}}>Study selected</button><span>{selected.length} selected</span></div>
       </>}
     </>}
-    <footer className="retro-footer"><hr/><span>FCOM.lib</span> · <IndexLink to="index" onClick={()=>navigate("lectures")}>Index</IndexLink> · <span>Prototype / sample data</span></footer>
+    <footer className="retro-footer"><hr/><span>lectures.lib</span> · <IndexLink to="index" onClick={()=>navigate("lectures")}>Index</IndexLink> · <span>Prototype / sample data</span></footer>
   </section>;
 }

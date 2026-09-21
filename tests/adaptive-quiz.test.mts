@@ -38,7 +38,7 @@ test("source budget preserves the end of a long lecture and excludes personal no
 });
 test("reject invalid choices, indices, citations, quotes, and weak clinical structure",()=>{
   const plan=nextQuestionPlan(topics,freshQuizProgress());
-  for(const patch of [{choices:rawQuestion().choices.slice(0,3)},{choices:[...rawQuestion().choices,...rawQuestion().choices.slice(0,2)]},{correctIndex:8},{choices:Array(4).fill(rawQuestion().choices[0])},{sourcePages:[999]},{sourceQuote:"This quote does not occur anywhere in the supplied source."},{vignette:"A patient is sick."},{reasoningSteps:["Just recall the answer without any inference."]}])assert.throws(()=>validateQuizQuestion({...rawQuestion(),...patch},plan,source));
+  for(const patch of [{choices:rawQuestion().choices.slice(0,3)},{choices:[...rawQuestion().choices,...rawQuestion().choices.slice(0,2)]},{correctIndex:8},{choices:Array(4).fill(rawQuestion().choices[0])},{sourcePages:[999]},{sourceQuote:"This quote does not occur anywhere in the supplied source."},{vignette:"A patient is sick."},{vignette:`${rawQuestion().vignette} Which kinetic pattern is present?`},{vignette:`${rawQuestion().vignette} Determine the most likely mechanism.`},{stem:"Which kinetic pattern is present? Which mechanism explains it?"},{stem:"Which kinetic pattern is present."},{reasoningSteps:["Just recall the answer without any inference."]}])assert.throws(()=>validateQuizQuestion({...rawQuestion(),...patch},plan,source));
   assert.doesNotThrow(()=>validateQuizQuestion({...rawQuestion(),choices:[...rawQuestion().choices,{text:"Unchanged Km, unchanged Vmax",rationale:"This would not account for the changed substrate requirement."}]},plan,source));
 });
 

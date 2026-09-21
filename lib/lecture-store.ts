@@ -68,7 +68,7 @@ async function attemptCloudSync(action: () => Promise<void>) {
     announceCloudStatus("fcom-cloud-sync-ok", "Saved to cloud");
   } catch (error) {
     const detail = error instanceof Error ? error.message : "Cloud sync failed.";
-    console.error("FCOM.lib cloud sync failed", error);
+    console.error("lectures.lib cloud sync failed", error);
     announceCloudStatus("fcom-cloud-sync-error", `${detail} Your change is still saved on this device.`);
   }
 }
@@ -317,7 +317,7 @@ export async function getLectureFile(id: string): Promise<Blob | null> {
   try {
     local = await getLocalLectureFile(id);
   } catch (error) {
-    console.warn("FCOM.lib could not read the device PDF cache; using cloud storage instead.", error);
+    console.warn("lectures.lib could not read the device PDF cache; using cloud storage instead.", error);
   }
   if (local) return local;
   const cloud = await downloadCloudFile("lectures", id);
@@ -335,7 +335,7 @@ export async function getLectureFile(id: string): Promise<Blob | null> {
   } catch (error) {
     // Safari can reject large IndexedDB writes even though the cloud download
     // succeeded. The cache is an optimization, never a requirement to view.
-    console.warn("FCOM.lib could not cache this PDF on the device.", error);
+    console.warn("lectures.lib could not cache this PDF on the device.", error);
   }
   return cloud;
 }

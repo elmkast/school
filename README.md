@@ -1,6 +1,6 @@
-# FCOM.lib
+# lectures.lib
 
-A private, searchable, AI-assisted lecture library for medical school. FCOM.lib imports PDF decks, extracts page-level text, structures lecture metadata and SLOs with Luna, and synchronizes a private library through Supabase.
+A private, searchable, AI-assisted lecture library for medical school. lectures.lib imports PDF decks, extracts page-level text, structures lecture metadata and SLOs with Luna, and synchronizes a private library through Supabase.
 
 See the [product specification](docs/MEDLIBRARY_PRODUCT_SPEC.md) and [UX system](docs/UX_SYSTEM_SPEC.md) for current scope and design rules.
 
@@ -58,4 +58,4 @@ The OpenAI key is read only by Netlify functions and is never exposed to the bro
 - Search is keyword-based, not vector semantic search.
 - The first cloud migration runs in the open browser tab.
 - Missing device thumbnails do not block lecture access, but the first-page preview requires the PDF to exist locally or in private cloud storage.
-- FCOM.lib organizes study material; the original curriculum source remains authoritative.
+- lectures.lib organizes study material; the original curriculum source remains authoritative.

@@ -1,4 +1,4 @@
--- FCOM.lib private library schema.
+-- lectures.lib private library schema. Stable bucket identifiers intentionally retain the original name.
 -- Safe to run more than once in the Supabase SQL editor.
 
 create table if not exists public.fcom_lectures (

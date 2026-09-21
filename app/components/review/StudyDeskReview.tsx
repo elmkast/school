@@ -45,7 +45,7 @@ export function StudyDeskReview() {
 
   return <section className="study-desk">
     <header className="desk-masthead">
-      <button className="desk-wordmark" onClick={() => navigate("Lectures")}>FCOM.lib<span> /</span></button>
+      <button className="desk-wordmark" onClick={() => navigate("Lectures")}>lectures.lib<span> /</span></button>
       <nav aria-label="Study desk navigation">{(["Lectures", "SLOs"] as const).map(item => <button key={item} aria-current={!reading && !session && destination === item ? "page" : undefined} onClick={() => navigate(item)}>{item}</button>)}</nav>
       <div className="desk-masthead-actions"><button aria-expanded={searching} onClick={() => { setSearching(!searching); setQuery(""); }}>Search</button><button className="desk-add" aria-label="Add sample lectures" onClick={() => setImporting(true)}>Add +</button></div>
     </header>

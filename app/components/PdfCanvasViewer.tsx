@@ -191,7 +191,7 @@ export function PdfCanvasViewer({ file, lectureId, page, zoom, inkStrokes, penEn
         renderedTextLayer = new TextLayer({ textContentSource: textContent, container: textLayerContainer, viewport });
         await renderedTextLayer.render();
       } catch (error) {
-        console.warn("FCOM.lib could not render selectable PDF text on this browser.", error);
+        console.warn("lectures.lib could not render selectable PDF text on this browser.", error);
       }
     })().catch(() => { if (!cancelled) setStatus("The PDF page could not be rendered."); });
     return () => { cancelled = true; renderedTextLayer?.cancel(); };
