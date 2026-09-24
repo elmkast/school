@@ -38,7 +38,7 @@ export function SloWorkspace({ lectures, studyObjectives, courses, instructors, 
   const currentStudyIndex = Math.min(studyIndex, Math.max(0, studyObjectives.length - 1));
   const currentStudyObjective = studyObjectives[currentStudyIndex];
 
-  return <section className="slo-study-prototype slo-board-proposal slo-board-live" aria-label="Session learning objectives">
+  return <section className="slo-workspace slo-board-live" aria-label="Session learning objectives">
     <header className="slo-study-header">
       <div><h2>Session learning objectives</h2><span>{studyObjectives.length} in study set</span></div>
       <div className="slo-study-header-actions">

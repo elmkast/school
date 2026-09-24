@@ -8,8 +8,8 @@ import { QuizBuffer, type QuizBufferSnapshot } from "../../lib/quiz-buffer";
 import { liveQuizService, type QuizService } from "../../lib/quiz-client";
 import "./adaptive-quiz.css";
 
-export function AdaptiveQuiz({lectures,initialLectureId="",onExit,service=liveQuizService,preview=false}: {
-  lectures:Lecture[];initialLectureId?:string;onExit():void;service?:QuizService;preview?:boolean;
+export function AdaptiveQuiz({lectures,initialLectureId="",onExit,service=liveQuizService}: {
+  lectures:Lecture[];initialLectureId?:string;onExit():void;service?:QuizService;
 }) {
   const dialog=useRef<HTMLDialogElement>(null);
   const questionHeading=useRef<HTMLHeadingElement>(null);
@@ -50,7 +50,7 @@ export function AdaptiveQuiz({lectures,initialLectureId="",onExit,service=liveQu
   }
 
   return createPortal(<dialog className="adaptive-quiz" ref={dialog} aria-label="Lecture quiz" onCancel={event=>{event.preventDefault();exit();}}>
-    <header><div><strong>{started?source?.title:"Quiz"}</strong>{preview&&<span className="aq-preview">Preview · no API calls</span>}</div><button type="button" onClick={exit}>Exit quiz</button></header>
+    <header><div><strong>{started?source?.title:"Quiz"}</strong></div><button type="button" onClick={exit}>Exit quiz</button></header>
     {!started?<div className="aq-setup"><label htmlFor="quiz-lecture">Lecture</label><select id="quiz-lecture" value={lectureId} onChange={e=>{setLectureId(e.target.value);setSetupError("");}}><option value="">Select a lecture</option>{[...lectures].sort((a,b)=>a.course.localeCompare(b.course)||(b.week??0)-(a.week??0)||a.title.localeCompare(b.title)).map(l=><option value={l.id} key={l.id}>{l.course} · {l.week?`Week ${l.week}`:"Unassigned week"} · {l.title}</option>)}</select><p>Adaptive multiple choice. At least 70% clinical, second-order questions. Exiting clears the session.</p>{error&&<p className="aq-error" role="alert">{error}</p>}<button className="aq-primary" disabled={!lecture||Boolean(busy)} onClick={start}>Start quiz</button></div>:<>
       <div className="aq-status"><span>Question {progress.answered+(answered?0:1)}</span><span>{quizCorrectCount(progress)} / {progress.answered} correct</span><span className="aq-status-note">AI-generated practice · not official NBME material</span></div>
       {source?.truncated&&!question&&<p className="aq-source-note">This long lecture uses excerpts from every text-bearing slide.</p>}

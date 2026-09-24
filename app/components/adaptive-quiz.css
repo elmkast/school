@@ -12,7 +12,7 @@
 .aq-setup { padding:26px; display:grid; gap:16px; }
 .adaptive-quiz .aq-setup select { width:100%; min-width:0; max-width:100%; padding:10px; border:1px solid #888; background:#fff; }
 .aq-setup>button { justify-self:start; }
-.aq-setup p,.aq-status-note,.aq-source-note,.aq-preview { font-size:14px; }
+.aq-setup p,.aq-status-note,.aq-source-note { font-size:14px; }
 .aq-setup p { margin:0; }
 .adaptive-quiz .aq-primary { background:#222; color:white; border-color:#222; }
 .aq-status { display:flex; flex-wrap:wrap; gap:12px 25px; padding:12px 26px; border-bottom:1px solid #ddd; font-size:14px; }

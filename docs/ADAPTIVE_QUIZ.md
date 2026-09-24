@@ -42,11 +42,10 @@ The model-call timeout is 45 seconds (previously 25), with one model call per HT
 
 Startup normally needs six model calls (topics + five questions), then one per submitted answer. Validation failures can add bounded repair/replacement calls. Five ungraded slots (ready or being generated) cap the queue; there is no unattended generation loop. Exiting discards unused prepared questions, so this latency improvement can spend more credits on questions that are never answered.
 
-## Verification and UI review
+## Verification
 
 - `pnpm test:quiz`: scheduler, reset, shuffle mappings, source validation, request validation, authentication, structured-output settings, bounded repair, and model failure handling. Tests mock external services and do not spend API credits.
 - `pnpm lint` and `pnpm build:netlify`.
-- `/ui-review` → **Quiz preview** uses the actual quiz component with deterministic fixtures, including an optional quality rejection that retries automatically. It exercises five-question startup, submission, feedback, instant next-question transitions, replenishment, and exit without API calls. Fixture question content is not a demonstration of production adaptive question quality.
 - Buffer regression tests cover out-of-order request completion, rapid answers, duplicate submission protection, the clinical mix with queued reservations, finite automatic retries, and cancellation.
 - Live Luna content quality and latency still require a signed-in deployment check using real lecture material.
 - Evidence-ID integration tests deliberately inject a bad reference through the real handler and buffer, then verify automatic replacement, five ready questions, zero fake answers, and specific private-data-free diagnostics. Historical live failures did not record check codes, so their exact cause cannot be retrospectively established.

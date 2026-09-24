@@ -80,8 +80,8 @@ export function LectureGallery({ lectures, onOpen }: { lectures: Lecture[]; onOp
       .map((group) => ({ ...group, lectures: [...group.lectures].sort((a, b) => compareText(a.title, b.title)) }));
   }, [courseFilter, lectures]);
 
-  return <div className="lecture-gallery-prototype lecture-gallery-live">
-    <header><div><small>FCOM.LIB</small><strong>Lecture archive</strong></div><label className="lecture-gallery-course-filter"><span>Course</span><select aria-label="Filter lecture archive by course" value={courseFilter} onChange={(event) => setCourseFilter(event.target.value)}><option value="all">All courses</option>{courses.map((course) => <option key={course} value={course}>{course}</option>)}</select></label></header>
+  return <div className="lecture-gallery lecture-gallery-live">
+    <header><div><small>LECTURES.LIB</small><strong>Lecture archive</strong></div><label className="lecture-gallery-course-filter"><span>Course</span><select aria-label="Filter lecture archive by course" value={courseFilter} onChange={(event) => setCourseFilter(event.target.value)}><option value="all">All courses</option>{courses.map((course) => <option key={course} value={course}>{course}</option>)}</select></label></header>
     {groups.length > 0 ? <div className="lecture-gallery-groups">{groups.map((group) => <section key={group.key}>
       <div className="lecture-gallery-heading"><h3>{group.course}</h3><span>{lectureWeekLabel(group.week)}</span><small>{group.academicYear}</small></div>
       <div className="lecture-gallery-grid">{group.lectures.map((lecture) => <button type="button" className="lecture-gallery-item" key={lecture.id} aria-label={`Open ${lecture.title}`} onClick={() => onOpen(lecture)}>

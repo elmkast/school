@@ -41,7 +41,7 @@ export function LectureImportReview({ jobs, courses, instructors, finalizing, on
   const ready = jobs.length > 0 && jobs.every((job) => job.status === "ready" && job.lecture && job.lecture.title.trim() && !courseNeedsReview(job.lecture.course) && !instructorNeedsReview(job.lecture.lecturer) && job.lecture.week !== null);
 
   return <div className="live-upload-backdrop" role="presentation">
-    <section className="upload-review-prototype upload-review-live" role="dialog" aria-modal="true" aria-label="Review lecture imports">
+    <section className="upload-review upload-review-live" role="dialog" aria-modal="true" aria-label="Review lecture imports">
       <header className="upload-review-header">
         <h2>Review</h2>
         <button className="upload-review-close" aria-label="Close review" onClick={onClose}><AppIcon name="x"/></button>
