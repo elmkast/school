@@ -9,6 +9,7 @@ See the [product specification](docs/MEDLIBRARY_PRODUCT_SPEC.md) and [UX system]
 - Visual lecture archive with first-page PDF previews
 - Dynamic course filtering and newest-week-first grouping
 - Multi-PDF import with visible sequential processing
+- Import quality checks and duplicate detection before finalization
 - Full-screen PDF viewer with Luna-generated contents, marked slides, 60–400% zoom, touch gestures, and persistent Apple Pencil/pen markup
 - Exact lecture, SLO, and extracted slide-text search
 - SLO confidence board with priority review, persistent study sets, Luna re-parsing, and PDF/Excel export

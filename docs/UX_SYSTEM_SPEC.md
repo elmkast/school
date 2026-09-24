@@ -46,6 +46,8 @@ lectures.lib is a restrained academic workspace: neutral application surfaces, a
 - Missing required fields are indicated on the field itself rather than through redundant status prose.
 - Processing state is brief and functional.
 - Finalize remains unavailable until every staged lecture is ready and complete.
+- Quality findings appear directly on the affected staged lecture. Extraction errors block finalization, while ordinary warnings remain advisory.
+- Likely duplicates name the matching lecture and stay unresolved until the user removes the staged file or explicitly chooses **Keep anyway**.
 - Removing a staged file uses the familiar delete control and affects only that staged import.
 
 ## PDF reader

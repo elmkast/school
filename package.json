@@ -16,6 +16,7 @@
     "start": "vinext start",
     "test": "npm run build && node --test tests/rendered-html.test.mjs",
     "test:quiz": "node --experimental-strip-types --test tests/adaptive-quiz.test.mts",
+    "test:import": "node --experimental-strip-types --test tests/import-quality.test.mts",
     "lint": "eslint . --ignore-pattern dist --ignore-pattern dist-netlify --ignore-pattern .next",
     "db:generate": "drizzle-kit generate"
   },

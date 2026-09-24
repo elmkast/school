@@ -36,6 +36,9 @@ Lecture import, cloud sync, diagnostics, and account controls also live in the t
 - Extracts page-level text in the browser.
 - Uses Luna to propose title, course, instructor, summary, outline, SLOs, and optional table-of-contents data.
 - Keeps processed lectures staged until the user reviews them.
+- Checks page extraction, readable-text coverage, SLO detection, and AI-analysis fallback before finalization.
+- Detects likely duplicates against both the saved library and the current batch using normalized filenames, metadata, page counts, and extracted slide-text similarity.
+- Blocks structurally unusable imports. Possible duplicates require an explicit **Keep anyway** acknowledgement; informational quality warnings do not prevent import.
 - Requires a title, course, instructor, and curriculum week before finalization.
 - Allows title, course, instructor, and week to be corrected before saving.
 - Finalizes the reviewed records and their PDFs into the private library.

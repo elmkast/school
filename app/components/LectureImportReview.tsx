@@ -1,6 +1,7 @@
 "use client";
 
 import { LECTURE_WEEK_OPTIONS, lectureWeekLabel } from "../../lib/curriculum";
+import { assessImportQuality } from "../../lib/import-quality";
 import type { Lecture } from "../../lib/lecture-store";
 import { AppIcon } from "./AppIcon";
 
@@ -14,6 +15,7 @@ export type LectureImportJob = {
   lecture?: Lecture;
   error?: string;
   aiFailed?: boolean;
+  duplicateOverride?: boolean;
 };
 
 const statusLabel: Record<LectureImportStatus, string> = {
@@ -27,18 +29,25 @@ const statusLabel: Record<LectureImportStatus, string> = {
 function courseNeedsReview(value: string) { return !value.trim() || value.trim().toLowerCase() === "unsorted"; }
 function instructorNeedsReview(value: string) { return !value.trim() || /not detected/i.test(value); }
 
-export function LectureImportReview({ jobs, courses, instructors, finalizing, onUpdate, onRemove, onAddMore, onClose, onFinalize }: {
+export function LectureImportReview({ jobs, library, courses, instructors, finalizing, onUpdate, onRemove, onAcknowledgeDuplicate, onAddMore, onClose, onFinalize }: {
   jobs: LectureImportJob[];
+  library: Lecture[];
   courses: string[];
   instructors: string[];
   finalizing: boolean;
   onUpdate(id: string, changes: Partial<Lecture>): void;
   onRemove(id: string): void;
+  onAcknowledgeDuplicate(id: string): void;
   onAddMore(): void;
   onClose(): void;
   onFinalize(): void;
 }) {
-  const ready = jobs.length > 0 && jobs.every((job) => job.status === "ready" && job.lecture && job.lecture.title.trim() && !courseNeedsReview(job.lecture.course) && !instructorNeedsReview(job.lecture.lecturer) && job.lecture.week !== null);
+  const batch = jobs.flatMap((job) => job.lecture ? [job.lecture] : []);
+  const qualityReports = new Map(jobs.flatMap((job) => job.lecture ? [[job.id, assessImportQuality({ lecture: job.lecture, fileName: job.name, aiFailed: job.aiFailed, library, batch })] as const] : []));
+  const ready = jobs.length > 0 && jobs.every((job) => {
+    const report = qualityReports.get(job.id);
+    return job.status === "ready" && job.lecture && job.lecture.title.trim() && !courseNeedsReview(job.lecture.course) && !instructorNeedsReview(job.lecture.lecturer) && job.lecture.week !== null && !report?.blocksFinalization && (!report?.duplicates.length || job.duplicateOverride);
+  });
 
   return <div className="live-upload-backdrop" role="presentation">
     <section className="upload-review upload-review-live" role="dialog" aria-modal="true" aria-label="Review lecture imports">
@@ -59,11 +68,12 @@ export function LectureImportReview({ jobs, courses, instructors, finalizing, on
         {jobs.map((job) => {
           const lecture = job.lecture;
           const processed = job.status === "ready" && lecture;
+          const quality = qualityReports.get(job.id);
           return <article className="upload-review-row" key={job.id}>
             <div className="upload-review-file">
               <div>
                 <small>{job.name}{lecture ? ` · ${lecture.pages} pages` : ""}</small>
-                {processed ? <input aria-label={`Lecture title for ${job.name}`} value={lecture.title} onChange={(event) => onUpdate(job.id, { title: event.target.value })}/> : <strong className={job.status === "error" ? "upload-review-error" : "upload-review-processing"}>{job.error || statusLabel[job.status]}</strong>}
+                {processed ? <input aria-label={`Lecture title for ${job.name}`} className={!lecture.title.trim() ? "field-needed" : ""} value={lecture.title} onChange={(event) => onUpdate(job.id, { title: event.target.value })}/> : <strong className={job.status === "error" ? "upload-review-error" : "upload-review-processing"}>{job.error || statusLabel[job.status]}</strong>}
               </div>
             </div>
             <div className="upload-review-fields">
@@ -71,6 +81,11 @@ export function LectureImportReview({ jobs, courses, instructors, finalizing, on
               <label><span>Week</span><select aria-label={`Week for ${job.name}`} disabled={!processed} className={processed && lecture.week === null ? "field-needed" : ""} value={lecture?.week ?? ""} onChange={(event) => onUpdate(job.id, { week: event.target.value ? Number(event.target.value) : null })}><option value="">Select week</option>{LECTURE_WEEK_OPTIONS.map((week) => <option key={week} value={week}>{lectureWeekLabel(week)}</option>)}</select></label>
               <label><span>Instructor</span><input aria-label={`Instructor for ${job.name}`} list="import-instructor-options" disabled={!processed} className={processed && instructorNeedsReview(lecture.lecturer) ? "field-needed" : ""} value={lecture?.lecturer ?? ""} onChange={(event) => onUpdate(job.id, { lecturer: event.target.value })}/></label>
             </div>
+            {processed && quality?.issues.length ? <div className="upload-review-checks" aria-label={`Import checks for ${job.name}`}>
+              {quality.issues.map((issue, index) => <p className={issue.severity} key={`${issue.code}-${index}`}>{issue.message}</p>)}
+              {quality.duplicates.length > 0 && !job.duplicateOverride ? <button type="button" onClick={() => onAcknowledgeDuplicate(job.id)}>Keep anyway</button> : null}
+              {quality.duplicates.length > 0 && job.duplicateOverride ? <small>Duplicate accepted</small> : null}
+            </div> : null}
             <div className="upload-review-row-status"><button aria-label={`Remove ${job.name}`} onClick={() => onRemove(job.id)}><AppIcon name="trash"/></button></div>
           </article>;
         })}
