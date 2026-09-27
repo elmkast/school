@@ -1,6 +1,6 @@
 # lectures.lib product specification
 
-Last updated: September 23, 2026
+Last updated: September 27, 2026
 
 ## Product definition
 
@@ -14,8 +14,9 @@ The application has one persistent top bar and no sidebar.
 
 1. **Lectures** — the default visual archive.
 2. **SLOs** — confidence tracking, priority review, study sets, re-parsing, and export.
-3. **Quiz** — a modal, single-lecture adaptive quiz.
-4. **Search** — opened automatically when text is entered in the top search field.
+3. **Quiz** — a modal, single-lecture adaptive quiz with its original 70% clinical-question policy.
+4. **Exam prep** — a separate modal for generative study across multiple selected lectures.
+5. **Search** — opened automatically when text is entered in the top search field.
 
 Lecture import, cloud sync, diagnostics, and account controls also live in the top bar. There is no separate Home page or UI-review route.
 
@@ -58,6 +59,20 @@ Lecture import, cloud sync, diagnostics, and account controls also live in the t
 - Deletes the lecture and its PDF only after confirmation.
 
 The current reader does not include slide notes or Luna chat.
+
+## Exam prep
+
+- Select any number of lectures using search plus Course, Week, and Instructor filters. Selection uses stable lecture IDs, persists across filtering, and is not capped by the rendered list window.
+- Lectures with no readable extracted text remain visible but cannot be selected. Selecting at least one usable lecture is required.
+- Sources are indexed locally into bounded, deterministic sections; only one section is sent to Luna at a time. Sections preserve the original PDF page numbers and split oversized slide text without dropping spans.
+- Maps topics lazily and attempts to spread the first five questions across different selected lectures when practical. Does not pre-map the full library or send unselected content.
+- Prepares five valid questions before showing the first. Uses four or five randomized multiple-choice options; has no 70/30 clinical quota or fixed quiz length.
+- Starts with foundational, first-order questions. Demonstrated performance advances a topic through application to clinical integration; missed answers lower that topic's target and schedule a delayed easier follow-up. Unfamiliar topics start at Foundation regardless of performance elsewhere.
+- Shows one question at a time. Feedback includes explanation, reasoning, distractor rationales, takeaway, and exact source lecture/page/excerpt after submission.
+- Offers a compact, expandable progress summary of sampled lectures, practiced topics, and questions attempted at each practice level. These are study heuristics, not validated mastery or readiness scores.
+- Uses bounded automatic generation recovery, two concurrent requests, a five-question live buffer, and session-only adaptation. Exiting or reloading discards all session questions and progress.
+
+Exam Prep questions and performance are not saved to Supabase or browser storage. Sources rely on stored extracted slide text, which may include AI-proposed text from import; source citations identify the stored excerpt but do not independently establish the medical correctness of a generated explanation.
 
 ## SLO workspace
 
@@ -130,8 +145,9 @@ Legacy internal storage names and Supabase bucket identifiers may retain their o
 
 ## Current limitations
 
-- Quizzes use one lecture at a time.
-- Quizzes and performance do not resume after exit.
+- Quiz remains single-lecture; Exam Prep selects multiple lectures.
+- Neither Quiz nor Exam Prep resumes after exit or reload.
+- Exam Prep does not guarantee zero wait time, comprehensive coverage in the first five questions, or clinically validated difficulty progression.
 - Search does not use embeddings or OCR.
 - Ink cannot yet be flattened into a downloadable annotated PDF.
 - Cloud conflict resolution is last-write-oriented rather than a user-facing merge workflow.
@@ -148,4 +164,4 @@ Legacy internal storage names and Supabase bucket identifiers may retain their o
 - Never expose `OPENAI_API_KEY` or a Supabase secret/service-role key to the browser.
 - Preserve stable storage identifiers unless a tested migration accompanies the change.
 - A missing preview or AI enhancement must never block access to the original PDF.
-- Run adaptive quiz tests, lint, and the Netlify production build before deployment.
+- Run single-lecture Quiz tests, Exam Prep tests, import tests, typecheck, lint, and the Netlify production build before deployment.

@@ -2,6 +2,8 @@
 
 Implemented September 10, 2026. This is session-only practice, not a restored question bank.
 
+The single-lecture Quiz retains its original policy and endpoint. Multi-lecture **Exam prep** is a separate study mode with a foundation-to-integration progression and no fixed clinical-question ratio; its implementation and policy are recorded in `EXAM_PREP_IMPLEMENTATION_PLAN.md` and the product specification.
+
 ## User flow
 
 - Choose **Quiz** in the application navigation, select one lecture, then **Start quiz**. **Start quiz** in an open lecture preselects that lecture.

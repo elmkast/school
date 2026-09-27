@@ -271,7 +271,7 @@ export function PdfCanvasViewer({ file, lectureId, page, zoom, inkStrokes, penEn
       return;
     }
     draftInkRef.current = [inkPoint(event)];
-    if (inkCanvasRef.current) drawInkStrokes(inkCanvasRef.current, [...currentInkRef.current, { id: "draft", points: draftInkRef.current, tool:inkMode, color:inkColor, width:inkWidth }]);
+      if (inkCanvasRef.current) drawInkStrokes(inkCanvasRef.current, [...currentInkRef.current, { id: "draft", points: draftInkRef.current, tool:inkMode as "pen"|"highlighter", color:inkColor, width:inkWidth }]);
   }
 
   function continueInk(event: PointerEvent<HTMLDivElement>) {
@@ -299,7 +299,7 @@ export function PdfCanvasViewer({ file, lectureId, page, zoom, inkStrokes, penEn
     }
     if (!draftInkRef.current) return;
     draftInkRef.current.push(inkPoint(event));
-    if (inkCanvasRef.current) drawInkStrokes(inkCanvasRef.current, [...currentInkRef.current, { id: "draft", points: draftInkRef.current, tool:inkMode, color:inkColor, width:inkWidth }]);
+    if (inkCanvasRef.current) drawInkStrokes(inkCanvasRef.current, [...currentInkRef.current, { id: "draft", points: draftInkRef.current, tool:inkMode as "pen"|"highlighter", color:inkColor, width:inkWidth }]);
   }
 
   function finishInk(event: PointerEvent<HTMLDivElement>) {
@@ -336,7 +336,7 @@ export function PdfCanvasViewer({ file, lectureId, page, zoom, inkStrokes, penEn
     draftInkRef.current = null;
     inkPointerIdRef.current = null;
     if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
-    commitInk([...currentInkRef.current, { id: crypto.randomUUID(), points, tool:inkMode, color:inkColor, width:inkWidth }]);
+    commitInk([...currentInkRef.current, { id: crypto.randomUUID(), points, tool:inkMode as "pen"|"highlighter", color:inkColor, width:inkWidth }]);
   }
 
   return <div className="pdf-canvas-wrap" ref={containerRef}>

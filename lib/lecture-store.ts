@@ -1,5 +1,6 @@
 import { supabase } from "./supabase-client";
 import { lectureWeekValue } from "./curriculum";
+import { fetchAllPages } from "./cloud-pagination";
 
 export type Slide = { page: number; text: string; heading: string };
 export type InkPoint = { x: number; y: number };
@@ -132,7 +133,7 @@ function normalizeMarkups(value: unknown): Record<number, InkStroke[]> {
         if (typeof candidate.x !== "number" || typeof candidate.y !== "number" || !Number.isFinite(candidate.x) || !Number.isFinite(candidate.y)) return [];
         return [{ x: Math.min(1, Math.max(0, candidate.x)), y: Math.min(1, Math.max(0, candidate.y)) }];
       });
-      const tool = record.tool === "highlighter" ? "highlighter" : "pen";
+      const tool: InkTool = record.tool === "highlighter" ? "highlighter" : "pen";
       const color = typeof record.color === "string" && /^#[0-9a-f]{6}$/i.test(record.color) ? record.color : undefined;
       const width = typeof record.width === "number" && Number.isFinite(record.width) ? Math.min(3, Math.max(1, record.width)) : undefined;
       return points.length ? [{ id: textValue(record.id, crypto.randomUUID()), points, tool, color, width }] : [];
@@ -367,13 +368,11 @@ async function cacheCloudLibrary(library: CloudLibrary) {
 
 export async function loadCloudLibrary(): Promise<CloudLibrary> {
   if (!supabase || !cloudUserId) return { lectures: [] };
-  const [lectureResult, preReadResult] = await Promise.all([
-    supabase.from("fcom_lectures").select("id,data").eq("user_id", cloudUserId).order("updated_at", { ascending: false }),
+  const [lectureRows, preReadResult] = await Promise.all([
+    fetchAllPages(async (from, to) => await supabase!.from("fcom_lectures").select("id,data").eq("user_id", cloudUserId!).order("updated_at", { ascending: false }).order("id", { ascending: true }).range(from, to)),
     supabase.from("fcom_prereads").select("id,data").eq("user_id", cloudUserId),
   ]);
-  const error = lectureResult.error ?? preReadResult.error;
-  if (error) throw error;
-  const lectureRows = lectureResult.data ?? [];
+  if (preReadResult.error) throw preReadResult.error;
   const lectures = lectureRows
     .map((row) => normalizeLecture((row as { data?: unknown }).data))
     .filter((lecture): lecture is Lecture => lecture !== null);

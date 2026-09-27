@@ -14,11 +14,12 @@ See the [product specification](docs/MEDLIBRARY_PRODUCT_SPEC.md) and [UX system]
 - Exact lecture, SLO, and extracted slide-text search
 - SLO confidence board with priority review, persistent study sets, Luna re-parsing, and PDF/Excel export
 - Session-only adaptive quizzes with verified lecture evidence, automatic quality recovery, and five-question buffering
+- Multi-lecture Exam prep with lazy source mapping, topic-level adaptive difficulty, delayed remediation, and five-question buffering
 - Supabase email/password accounts, private records, and private PDF storage
 - Device caching plus one-time, non-destructive lecture migration to cloud
 - Netlify production build and serverless AI endpoints
 
-Question Bank, pre-reads, Concept Bank, lecture notes, and reader chat are intentionally retired. Quiz questions are generated for the active session and are not stored.
+Question Bank, pre-reads, Concept Bank, lecture notes, and reader chat are intentionally retired. Quiz and Exam Prep questions are generated for their active sessions and are not stored. See [the Exam Prep implementation record](docs/EXAM_PREP_IMPLEMENTATION_PLAN.md) for bounds, policy, tests, and remaining live-content QA.
 
 ## Development
 

@@ -1,6 +1,6 @@
 # lectures.lib UX system
 
-Last updated: September 23, 2026
+Last updated: September 27, 2026
 
 ## Design direction
 
@@ -23,7 +23,7 @@ lectures.lib is a restrained academic workspace: neutral application surfaces, a
 ## Application frame
 
 - No sidebar and no separate Home destination.
-- A sticky top bar contains the `lectures.lib` wordmark, Lectures, SLOs, Quiz, curriculum search, Add lectures, and compact account utilities.
+- A sticky top bar contains the `lectures.lib` wordmark, Lectures, SLOs, Quiz, Exam prep, curriculum search, Add lectures, and compact account utilities.
 - Exactly one primary destination appears active.
 - Typing in global search opens search results; clearing the query returns the user to a durable primary destination.
 - Account and diagnostic controls remain visually secondary to study actions.
@@ -84,6 +84,17 @@ lectures.lib is a restrained academic workspace: neutral application surfaces, a
 - Exit quiz is always available.
 - Temporary generation recovery is automatic and quiet unless it materially delays progression.
 - The interface never presents a manual generation-retry decision.
+
+## Exam prep
+
+- Exam prep is a separate launch action and modal; it does not replace the single-lecture Quiz.
+- Setup uses a compact search field and Course, Week, and Instructor filters, with grouped lecture checkboxes and stable selection across filters.
+- Show selected count, Select shown, Clear, disabled no-text lectures, and incremental list expansion. A rendered row limit is not a selection limit.
+- During startup report progress toward five prepared questions. Keep Exit available.
+- During study retain the Quiz's one-question-at-a-time answer and feedback treatment. Keep sampled lecture/topic practice counts collapsed under Progress, not in a permanent dashboard.
+- Do not reveal a question's lecture/topic before answering; after submission reveal exact lecture identity, original page numbers, and cited source excerpt.
+- Keep difficulty labels descriptive as practice levels only. Never present them as exam readiness, mastery, or pass probabilities.
+- Restore focus to the launch control on exit and preserve keyboard, touch, and iPad-width reachability.
 
 ## Search
 
