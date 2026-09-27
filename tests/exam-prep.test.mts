@@ -46,13 +46,16 @@ function questionFor(plan: ReturnType<typeof nextExamPlan>, topic: ExamTopic, ev
   };
 }
 
-async function createFakeService(options: { failAfter?: number; slowMapping?: () => Promise<void>; repeated?: boolean } = {}) {
+async function createFakeService(options: { failAfter?: number; failMappingFor?: string; slowMapping?: (unit: ExamSourceUnit) => Promise<void>; repeated?: boolean } = {}) {
   let questionCalls = 0;
   const questionInputs: Parameters<ExamService["question"]>[0][] = [];
   const mapped: ExamSourceUnit[] = [];
+  const mapAttempts: ExamSourceUnit[] = [];
   const service: ExamService = {
     async mapTopics(unit) {
-      if (options.slowMapping) await options.slowMapping();
+      mapAttempts.push(unit);
+      if (options.slowMapping) await options.slowMapping(unit);
+      if (unit.lectureId === options.failMappingFor) throw new QuizGenerationError("Invalid topic map.", true, { issues: ["TOPICS_INVALID"] });
       mapped.push(unit);
       const evidence = examEvidenceForUnit(unit);
       return evidence.length ? [{ title: "Energy transfer", evidenceIds: [evidence[0].id] }] : [];
@@ -67,7 +70,7 @@ async function createFakeService(options: { failAfter?: number; slowMapping?: ()
       return questionFor(plan, topic, evidence, options.repeated ? 1 : questionCalls);
     },
   };
-  return { service, get questionCalls() { return questionCalls; }, questionInputs, mapped };
+  return { service, get questionCalls() { return questionCalls; }, questionInputs, mapped, mapAttempts };
 }
 
 test("source index deduplicates IDs and handles 1,000 selections without copying slide text into unit references", async () => {
@@ -238,6 +241,35 @@ test("Exam pool waits for five valid questions, samples lectures, counts one rap
   assert.equal(pool.snapshot().sampledLectures, 1);
   assert.equal(pool.snapshot().ready, 5);
   assert.ok(snapshots.length > 0);
+  pool.dispose();
+});
+
+test("startup drafts its first question while it finishes mapping coverage lectures", async () => {
+  const lectures = [makeLecture("a"), makeLecture("b"), makeLecture("c")];
+  const index = await buildExamSourceIndex(lectures);
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => { release = resolve; });
+  const fake = await createFakeService({ slowMapping: async (unit) => { if (unit.lectureId === "b") await gate; } });
+  const pool = new ExamPool(index.units, index.lecturesById, fake.service, () => undefined, async () => undefined, "overlap-test");
+  await pool.start();
+  await waitUntil(() => fake.questionCalls === 1, () => `first question did not overlap topic mapping: ${JSON.stringify(pool.snapshot())}`);
+  assert.equal(pool.snapshot().initialized, false, "the first question must not bypass the five-question startup barrier");
+  assert.ok(fake.mapAttempts.some((unit) => unit.lectureId === "b"), "a second lecture is still being analyzed concurrently");
+  release();
+  await waitUntil(() => pool.snapshot().initialized, () => `pool did not finish after mapping completed: ${JSON.stringify(pool.snapshot())}`);
+  assert.ok(new Set(fake.questionInputs.map((input) => input.plan.lectureId)).size >= 3);
+  pool.dispose();
+});
+
+test("a section that exhausts mapping retries is skipped instead of being submitted repeatedly", async () => {
+  const lectures = [makeLecture("broken-map"), makeLecture("working-map")];
+  const index = await buildExamSourceIndex(lectures);
+  const fake = await createFakeService({ failMappingFor: "broken-map" });
+  const pool = new ExamPool(index.units, index.lecturesById, fake.service, () => undefined, async () => undefined, "failed-map-test");
+  await pool.start();
+  await waitUntil(() => pool.snapshot().initialized, () => `pool did not move past the failed section: ${JSON.stringify(pool.snapshot())}; mapAttempts=${fake.mapAttempts.length}`);
+  assert.equal(fake.mapAttempts.filter((unit) => unit.lectureId === "broken-map").length, 6, "one mapping operation gets its finite six attempts");
+  assert.equal(fake.mapAttempts.filter((unit) => unit.lectureId === "working-map").length, 1, "a failed unit must not consume the mapping budget repeatedly");
   pool.dispose();
 });
 

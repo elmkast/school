@@ -38,7 +38,7 @@ export function ExamPrep({ lectures, onExit, returnFocusRef, service = liveExamS
   const [building, setBuilding] = useState(false);
   const [indexProgress, setIndexProgress] = useState({ done: 0, total: 0 });
   const [started, setStarted] = useState(false);
-  const [snapshot, setSnapshot] = useState<ExamPoolSnapshot>({ progress: freshExamProgress(), current: null, ready: 0, initialized: false, busy: false, error: "", retrying: false, mappedUnits: 0, eligibleUnits: 0, sampledLectures: 0, selectedLectures: 0, parked: 0 });
+  const [snapshot, setSnapshot] = useState<ExamPoolSnapshot>({ progress: freshExamProgress(), current: null, ready: 0, initialized: false, busy: false, error: "", retrying: false, mappingRetrying: false, questionRetrying: false, mappingActive: false, mappedUnits: 0, totalUnits: 0, eligibleUnits: 0, sampledLectures: 0, selectedLectures: 0, parked: 0 });
   const [feedback, setFeedback] = useState<ExamQuestion | null>(null);
   const [choice, setChoice] = useState<number | null>(null);
   const [setupError, setSetupError] = useState("");
@@ -73,6 +73,17 @@ export function ExamPrep({ lectures, onExit, returnFocusRef, service = liveExamS
   const progress = snapshot.progress;
   const feedbackCorrect = Boolean(question && choice === question.correctIndex);
   const error = setupError || snapshot.error;
+  const preparationStatus = snapshot.mappingRetrying && snapshot.questionRetrying
+    ? "Retrying source analysis and question generation…"
+    : snapshot.mappingRetrying
+      ? `Retrying source analysis · ${snapshot.mappedUnits}/${snapshot.totalUnits} sections analyzed`
+      : snapshot.questionRetrying
+        ? "Retrying question generation…"
+        : snapshot.mappingActive
+          ? `Analyzing sections · ${snapshot.mappedUnits}/${snapshot.totalUnits} · questions ${Math.min(snapshot.ready, EXAM_BUFFER_SIZE)}/${EXAM_BUFFER_SIZE}`
+          : !snapshot.initialized
+            ? `Preparing questions · ${Math.min(snapshot.ready, EXAM_BUFFER_SIZE)}/${EXAM_BUFFER_SIZE}`
+            : "Preparing next question…";
   const levelTotals = useMemo(() => {
     const totals = { 1: 0, 2: 0, 3: 0 };
     for (const state of Object.values(progress.topics)) {
@@ -166,12 +177,12 @@ export function ExamPrep({ lectures, onExit, returnFocusRef, service = liveExamS
       <footer className="exam-setup-footer">{building && <span role="status">Indexing sources · {indexProgress.done}/{indexProgress.total}</span>}<button className="aq-primary" type="button" disabled={building || selectedIds.size === 0} onClick={() => void start()}>{building ? "Preparing…" : "Start exam"}</button></footer>
     </div> : <>
       <div className="aq-status exam-status"><span>Question {progress.answered + (answered ? 0 : 1)}</span><span>{progress.correct} / {progress.answered} correct</span><span>{levelTotals[1]} foundation · {levelTotals[2]} application · {levelTotals[3]} integration</span><button type="button" className="exam-progress-toggle" aria-expanded={progressOpen} onClick={() => setProgressOpen((value) => !value)}>Progress</button></div>
-      {progressOpen && <section className="exam-progress-panel"><div><strong>{snapshot.sampledLectures} / {snapshot.selectedLectures}</strong><span>lectures sampled</span></div><div><strong>{Object.keys(progress.topics).filter((id) => getExamTopicProgress(progress, id).correct + getExamTopicProgress(progress, id).incorrect > 0).length}</strong><span>topics practiced</span></div><div><strong>{snapshot.eligibleUnits}</strong><span>mapped lecture sections</span></div></section>}
+      {progressOpen && <section className="exam-progress-panel"><div><strong>{snapshot.sampledLectures} / {snapshot.selectedLectures}</strong><span>lectures sampled</span></div><div><strong>{Object.keys(progress.topics).filter((id) => getExamTopicProgress(progress, id).correct + getExamTopicProgress(progress, id).incorrect > 0).length}</strong><span>topics practiced</span></div><div><strong>{snapshot.mappedUnits} / {snapshot.totalUnits}</strong><span>sections analyzed</span></div></section>}
       {question && <QuizQuestionView question={question} questionHeading={questionHeading} choice={choice} answered={answered} feedbackCorrect={feedbackCorrect} onChoice={setChoice} onSubmit={submit}>
         {answered && <details><summary>Lecture source · {question.lectureTitle} · {question.sourcePages.map((page) => `p. ${page}`).join(", ")}</summary><p className="exam-source-meta">{question.topicTitle} · {question.level}/3 {levelLabel(question.level)} · {question.purpose}</p>{question.evidence.map((item) => <div className="aq-source-text" key={item.id}><b>{question.lectureTitle} · page {item.page}</b><p>{item.text}</p></div>)}</details>}
       </QuizQuestionView>}
       {((snapshot.busy && (!snapshot.initialized || !snapshot.current || snapshot.retrying)) || error || answered) && <footer className="aq-generation">
-        {snapshot.busy && (!snapshot.initialized || !snapshot.current || snapshot.retrying) && <span role="status">{snapshot.retrying ? "Replacing a question…" : !snapshot.initialized ? `Preparing · ${Math.min(snapshot.ready, EXAM_BUFFER_SIZE)}/${EXAM_BUFFER_SIZE}` : "Preparing next question…"}</span>}
+        {snapshot.busy && (!snapshot.initialized || !snapshot.current || snapshot.retrying) && <span role="status">{preparationStatus}</span>}
         {error && <div className="aq-error" role="alert"><p>{error}</p></div>}
         {answered && <button className="aq-primary" disabled={!snapshot.current} onClick={advance}>Next question</button>}
       </footer>}

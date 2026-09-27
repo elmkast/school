@@ -451,7 +451,7 @@ The following checks passed locally:
 
 | Check | Result |
 | --- | --- |
-| `npm.cmd run test:exam` | Passed: 18 tests |
+| `npm.cmd run test:exam` | Passed: 20 tests |
 | `npm.cmd run test:quiz` | Passed: 32 regression tests |
 | `npm.cmd run test:import` | Passed: 4 tests |
 | `npx.cmd tsc --noEmit -p tsconfig.netlify.json` | Passed |
@@ -468,3 +468,9 @@ The production build reports a large client chunk (about 1 MB) over Vite's 500 K
 - Pagination, source splitting/identity, scheduling, retry, and cancellation are covered by automated fixtures, but the manual live-library scenarios and a prolonged real session should still be exercised with the user's account.
 
 These are explicit QA follow-ups, not unimplemented feature wiring. Do not imply that a live model review or iPad test has already passed.
+
+### Startup latency follow-up
+
+The first live-use report showed the session waiting at **Preparing · 0/5** while all lecture sections still appeared unmapped. Startup previously spent its full initial coverage phase on topic-mapping calls before it began drafting any questions. It now overlaps the first question draft with coverage mapping while retaining the five-valid-question presentation barrier and the attempt to sample distinct lectures. A section that exhausts its automatic mapping retries is now marked failed and skipped, instead of becoming eligible for another full retry cycle. The startup status also distinguishes source-analysis progress from question-generation retries. Added two regression tests for overlap and no repeated failed-section operation.
+
+This reduces avoidable waiting, but the first session still depends on authenticated Netlify function and Luna response latency. If the live build remains stuck after this patch is deployed, capture the app Diagnostics immediately; that will distinguish a slow upstream request from auth, quota, or validation retries.

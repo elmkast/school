@@ -15,7 +15,8 @@ type QuestionSlot = { plan: ExamPlan; state: "waiting" | "loading" | "ready" | "
 type Mapping = { topics: ExamTopic[]; status: "ready" | "empty" | "failed" };
 export type ExamPoolSnapshot = {
   progress: ExamProgress; current: ExamQuestion | null; ready: number; initialized: boolean;
-  busy: boolean; error: string; retrying: boolean; mappedUnits: number;
+  busy: boolean; error: string; retrying: boolean; mappingRetrying: boolean; questionRetrying: boolean;
+  mappingActive: boolean; mappedUnits: number; totalUnits: number;
   eligibleUnits: number; sampledLectures: number; selectedLectures: number; parked: number;
 };
 
@@ -35,6 +36,8 @@ export class ExamPool {
   private parked: QuestionSlot[] = [];
   private active = 0;
   private retryCount = 0;
+  private mappingRetryCount = 0;
+  private questionRetryCount = 0;
   private mappingOperations = 0;
   private questionOperations = 0;
   private mappingBudget = EXAM_STARTUP_MAPPING_BUDGET;
@@ -72,7 +75,9 @@ export class ExamPool {
       progress: this.progress, current, ready: this.slots.filter((slot) => slot.state === "ready").length,
       initialized: this.initialized, busy: this.active > 0 || this.slots.some((slot) => slot.state === "waiting" || slot.state === "loading"),
       error: this.error || this.slots.find((slot) => slot.state === "failed")?.error || "",
-      retrying: this.retryCount > 0, mappedUnits: this.mappings.size, eligibleUnits: eligibleUnits.length,
+      retrying: this.retryCount > 0, mappingRetrying: this.mappingRetryCount > 0,
+      questionRetrying: this.questionRetryCount > 0, mappingActive: this.mappingInFlight.size > 0,
+      mappedUnits: this.mappings.size, totalUnits: this.units.length, eligibleUnits: eligibleUnits.length,
       sampledLectures, selectedLectures: selectedLectures.size,
       parked: this.parked.length,
     };
@@ -111,7 +116,7 @@ export class ExamPool {
       if (unit) mappedUnitsByLecture.set(unit.lectureId, (mappedUnitsByLecture.get(unit.lectureId) ?? 0) + 1);
     }
     return this.units
-      .filter((unit) => !["ready", "empty"].includes(this.mappings.get(unit.id)?.status ?? "") && !pending.has(unit.id))
+      .filter((unit) => !["ready", "empty", "failed"].includes(this.mappings.get(unit.id)?.status ?? "") && !pending.has(unit.id))
       .sort((a, b) => {
         const lectureA = this.progress.lecturesAnswered[a.lectureId] ?? 0;
         const lectureB = this.progress.lecturesAnswered[b.lectureId] ?? 0;
@@ -125,13 +130,18 @@ export class ExamPool {
 
   private startupNeedsCoverage() {
     const selected = new Set(this.units.map((unit) => unit.lectureId)).size;
-    return this.progress.answered === 0 && this.questionOperations === 0 && this.mappedLectureIds().size < Math.min(5, selected);
+    return this.progress.answered === 0 && this.mappedLectureIds().size < Math.min(5, selected);
   }
 
   private shouldMap() {
     if (this.mappingOperations >= this.mappingBudget) return false;
     if (!this.unansweredMappingUnit()) return false;
-    if (this.startupNeedsCoverage()) return true;
+    if (this.startupNeedsCoverage()) {
+      // Analyze a couple of sources immediately, then overlap one question draft
+      // with the remaining coverage work instead of serializing both phases.
+      if (!this.availableTopics().length) return true;
+      return this.mappingInFlight.size === 0;
+    }
     if (!this.availableTopics().length) return true;
     return this.progress.answered > 0 && this.progress.answered % 3 === 0 && this.mappingsSinceAnswer < EXAM_MAPPING_BUDGET_PER_ANSWER;
   }
@@ -204,7 +214,9 @@ export class ExamPool {
           continue;
         }
       }
-      if (this.slots.length < EXAM_BUFFER_SIZE && this.questionOperations < this.maxQuestionOperations()) {
+      const startupCoverageWorkRemains = this.startupNeedsCoverage() && (this.mappingInFlight.size > 0 || Boolean(this.unansweredMappingUnit()));
+      const startupQuestionAllowed = !startupCoverageWorkRemains || this.questionOperations === 0;
+      if (startupQuestionAllowed && this.slots.length < EXAM_BUFFER_SIZE && this.questionOperations < this.maxQuestionOperations()) {
         const topics = this.availableTopics();
         if (topics.length) {
           const plan = nextExamPlan(this.eligibleUnits(), topics, this.progress, this.pendingPlans(), this.sessionId);
@@ -280,9 +292,15 @@ export class ExamPool {
         if (!failure.retryable) throw failure;
         if (attempt === 5) throw new Error("Generation stopped after repeated failures. Prepared questions and progress are safe. Details are in Diagnostics.");
         this.retryCount += 1;
+        if (stage === "topic-mapping") this.mappingRetryCount += 1;
+        else this.questionRetryCount += 1;
         this.emit();
         try { await this.sleep(Math.max([2_000, 5_000, 10_000, 20_000, 30_000][attempt], failure.retryAfterMs), signal); }
-        finally { this.retryCount -= 1; }
+        finally {
+          this.retryCount -= 1;
+          if (stage === "topic-mapping") this.mappingRetryCount -= 1;
+          else this.questionRetryCount -= 1;
+        }
       }
     }
     throw new Error("Generation stopped.");
