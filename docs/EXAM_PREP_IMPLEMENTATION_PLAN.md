@@ -474,3 +474,27 @@ These are explicit QA follow-ups, not unimplemented feature wiring. Do not imply
 The first live-use report showed the session waiting at **Preparing · 0/5** while all lecture sections still appeared unmapped. Startup previously spent its full initial coverage phase on topic-mapping calls before it began drafting any questions. It now overlaps the first question draft with coverage mapping while retaining the five-valid-question presentation barrier and the attempt to sample distinct lectures. A section that exhausts its automatic mapping retries is now marked failed and skipped, instead of becoming eligible for another full retry cycle. The startup status also distinguishes source-analysis progress from question-generation retries. Added two regression tests for overlap and no repeated failed-section operation.
 
 This reduces avoidable waiting, but the first session still depends on authenticated Netlify function and Luna response latency. If the live build remains stuck after this patch is deployed, capture the app Diagnostics immediately; that will distinguish a slow upstream request from auth, quota, or validation retries.
+
+## 15. Provider schema and terminal error repair — September 27, 2026
+
+### Confirmed failure and correction
+
+The first report of a permanently stuck `0/56 sections analyzed · questions 0/5` screen was caused by an OpenAI strict structured-output schema containing `uniqueItems`, which the API rejects. A real request returned HTTP 400 `invalid_json_schema`, specifically identifying `uniqueItems` as unsupported. The function no longer sends that keyword in either Exam Prep response schema. It keeps uniqueness and reference checks in application code and returns a safe, whitelisted provider code for diagnosis.
+
+The pool also previously swallowed its terminal error notification: after storing an error, its scheduler returned without emitting a final snapshot. The latest callback could remain `busy: true` with no error forever. Terminal states now emit to the UI and report `busy: false`; the modal exposes the Diagnostics download action when a failure occurs. A bounded client transport now gives authentication and the complete request/response body a deadline, prevents a late auth result from dispatching after cancellation, and identifies an HTML app-shell response as a missing function deployment.
+
+Startup uses two request lanes to draft while mapping sources, reserves distinct lectures for the five initial questions where available, and can fill from usable mapped topics after the startup mapping budget is exhausted. Mapping sections that are empty or invalid are accounted for, and an exhausted infrastructure failure becomes visible. Provider retries retain a finite budget; semantic-quality retries have shorter delays. A per-operation deadline bounds the complete retry period.
+
+### Verification completed for this repair
+
+- The previous real provider probe failed in 1.1 seconds with the unsupported schema. After removing `uniqueItems`, a real synthetic topic-map request succeeded in 2.3 seconds.
+- An opt-in smoke test using nine synthetic lectures, real OpenAI requests, and stubbed authentication prepared five valid questions from five distinct lectures in 18.7 seconds. It made ten calls (five maps and five questions), used no more than two concurrent requests, and had no provider retries. First question generation overlapped mapping. The smoke test did not use the user's lecture text or verify deployed Supabase/Netlify authentication.
+- `npm.cmd run test:exam`: 27 tests passed, including terminal callback state, startup budget exhaustion, auth/request/body deadlines, cancellation, safe diagnostics, and a schema regression assertion for both actions.
+- `npm.cmd run test:quiz`: 32 passed.
+- `npm.cmd run test:import`: 4 passed.
+- `npx.cmd tsc --noEmit -p tsconfig.netlify.json`: passed.
+- `npm.cmd run build:netlify`: passed. Vite retains its existing advisory that the main client bundle is above 500 KB.
+- `npm.cmd run lint`: passed after a small timer declaration correction.
+- `git diff --check`: pending final run.
+
+Production behavior still needs one user-account check after deployment: start Exam Prep with a representative selection and verify the five-question buffer appears, then export Diagnostics only if a failure remains. The paid provider smoke is not part of regular test runs.

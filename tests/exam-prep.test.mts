@@ -252,12 +252,45 @@ test("startup drafts its first question while it finishes mapping coverage lectu
   const fake = await createFakeService({ slowMapping: async (unit) => { if (unit.lectureId === "b") await gate; } });
   const pool = new ExamPool(index.units, index.lecturesById, fake.service, () => undefined, async () => undefined, "overlap-test");
   await pool.start();
-  await waitUntil(() => fake.questionCalls === 1, () => `first question did not overlap topic mapping: ${JSON.stringify(pool.snapshot())}`);
+  await waitUntil(() => fake.questionCalls >= 1, () => `first question did not overlap topic mapping: ${JSON.stringify(pool.snapshot())}`);
   assert.equal(pool.snapshot().initialized, false, "the first question must not bypass the five-question startup barrier");
   assert.ok(fake.mapAttempts.some((unit) => unit.lectureId === "b"), "a second lecture is still being analyzed concurrently");
   release();
   await waitUntil(() => pool.snapshot().initialized, () => `pool did not finish after mapping completed: ${JSON.stringify(pool.snapshot())}`);
   assert.ok(new Set(fake.questionInputs.map((input) => input.plan.lectureId)).size >= 3);
+  pool.dispose();
+});
+
+test("terminal mapping failure reaches the last UI snapshot and clears its busy state", async () => {
+  const lecture = makeLecture("provider-schema-error");
+  const index = await buildExamSourceIndex([lecture]);
+  const snapshots: ExamPoolSnapshot[] = [];
+  const service: ExamService = {
+    async mapTopics() { throw new QuizGenerationError("Provider rejected question format. Details are in Diagnostics.", false, { code: "PROVIDER_CONFIGURATION" }); },
+    async question() { throw new Error("should not be called"); },
+  };
+  const pool = new ExamPool(index.units, index.lecturesById, service, snapshot => snapshots.push(snapshot), async () => undefined, "terminal-map-test");
+  await pool.start();
+  await waitUntil(() => Boolean(snapshots.at(-1)?.error), "terminal mapping error was not emitted");
+  assert.equal(snapshots.at(-1)?.busy, false);
+  assert.match(snapshots.at(-1)?.error ?? "", /Provider rejected/);
+  pool.dispose();
+});
+
+test("exhausted startup mapping budget ends with a visible error rather than a frozen partial queue", async () => {
+  const lectures = Array.from({ length: 12 }, (_, index) => makeLecture(`empty-${index}`));
+  const index = await buildExamSourceIndex(lectures);
+  const snapshots: ExamPoolSnapshot[] = [];
+  const service: ExamService = {
+    async mapTopics() { return []; },
+    async question() { throw new Error("no topics should be drafted"); },
+  };
+  const pool = new ExamPool(index.units, index.lecturesById, service, snapshot => snapshots.push(snapshot), async () => undefined, "empty-budget-test");
+  await pool.start();
+  await waitUntil(() => Boolean(pool.snapshot().error), () => `empty startup did not reach a terminal message: ${JSON.stringify(pool.snapshot())}`);
+  assert.equal(pool.snapshot().busy, false);
+  assert.ok(snapshots.at(-1)?.error);
+  assert.ok(pool.snapshot().mappedUnits > 0);
   pool.dispose();
 });
 
@@ -277,7 +310,8 @@ test("bounded quality retry stops after six attempts without removing completed 
   const lecture = makeLecture("retry");
   const index = await buildExamSourceIndex([lecture]);
   const fake = await createFakeService({ failAfter: 5 });
-  const pool = new ExamPool(index.units, index.lecturesById, fake.service, () => undefined, async () => undefined, "retry-test");
+  const snapshots: ExamPoolSnapshot[] = [];
+  const pool = new ExamPool(index.units, index.lecturesById, fake.service, snapshot => snapshots.push(snapshot), async () => undefined, "retry-test");
   await pool.start();
   await waitUntil(() => pool.snapshot().initialized, () => `initial pool unavailable: ${JSON.stringify(pool.snapshot())}; mapCalls=${fake.mapped.length}; questionCalls=${fake.questionCalls}`);
   const current = pool.snapshot().current!;
@@ -286,6 +320,8 @@ test("bounded quality retry stops after six attempts without removing completed 
   assert.equal(fake.questionCalls, 11);
   assert.equal(pool.snapshot().progress.answered, 1);
   assert.ok(pool.snapshot().ready >= 3, "prepared questions remain usable after failure");
+  assert.match(snapshots.at(-1)?.error ?? "", /automatic retries/i, "the final UI callback reports retry exhaustion");
+  assert.equal(snapshots.at(-1)?.busy, false, "the final UI callback clears its loading state");
   pool.dispose();
 });
 
@@ -369,6 +405,7 @@ test("authenticated endpoint maps only its bounded source unit and returns names
   assert.equal(data.topics[0].evidenceIds[0], evidence[0].id);
   const upstream = fake.calls.find((call) => call.url.includes("api.openai.com"))!;
   assert.equal(upstream.body?.store, false);
+  assert.equal(schemaHasUniqueItems(upstream.body), false, "OpenAI strict schemas reject uniqueItems");
   assert.ok(String(upstream.body?.instructions).includes("untrusted DATA"));
   assert.ok(!JSON.stringify(fake.logs).includes("Oxidative phosphorylation"));
 });
@@ -390,9 +427,17 @@ test("endpoint validates plan/source identity and produces page-specific source 
   assert.equal(result.question.lectureId, "api-a");
   assert.equal(result.question.evidence[0].lectureId, "api-a");
   assert.equal(result.question.sourcePages[0], 1);
+  const upstream = fake.calls.find((call) => call.url.includes("api.openai.com"))!;
+  assert.equal(schemaHasUniqueItems(upstream.body), false, "OpenAI strict schemas reject uniqueItems");
   const wrongPlan = await fake.request({ action: "question", unit, topic, plan: { ...plan, lectureId: "api-b" }, topicProgress: {}, recent: [], pending: [], duplicateSignatures: [] });
   assert.equal(wrongPlan.status, 400);
 });
+
+function schemaHasUniqueItems(value: unknown): boolean {
+  if (!value || typeof value !== "object") return false;
+  if (Array.isArray(value)) return value.some(schemaHasUniqueItems);
+  return Object.entries(value).some(([key, child]) => key === "uniqueItems" || schemaHasUniqueItems(child));
+}
 
 test("endpoint auth, request byte limit, automatic output correction, and safe provider errors are bounded", async () => {
   const sourceLecture = makeLecture("api-safe");

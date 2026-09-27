@@ -11,8 +11,9 @@ class ExamError extends Error {
   code: string;
   issues: string[];
   retryAfterMs: number;
-  constructor(message: string, status = 400, code = "BAD_REQUEST", issues: string[] = [], retryAfterMs = 0) {
-    super(message); this.status = status; this.code = code; this.issues = issues; this.retryAfterMs = retryAfterMs;
+  providerCode: string;
+  constructor(message: string, status = 400, code = "BAD_REQUEST", issues: string[] = [], retryAfterMs = 0, providerCode = "") {
+    super(message); this.status = status; this.code = code; this.issues = issues; this.retryAfterMs = retryAfterMs; this.providerCode = providerCode;
   }
 }
 
@@ -122,7 +123,8 @@ async function callModel(d: Dependencies, request: Request, instructions: string
     if (providerCode === "insufficient_quota") throw new ExamError("The Luna API account has reached its usage allowance.", 503, "BILLING_LIMIT");
     if (response.status === 429) throw new ExamError("Luna is temporarily rate-limited.", 429, "RATE_LIMIT", [], Math.max(1_000, Math.min(120_000, Number(response.headers.get("Retry-After")) * 1_000 || 15_000)));
     if (response.status >= 500) throw new ExamError("Luna is temporarily unavailable.", 502, "TRANSIENT");
-    throw new ExamError("Luna rejected the server configuration. Details are in Diagnostics.", 503, "PROVIDER_CONFIGURATION");
+    const safeProviderCode = ["invalid_json_schema", "model_not_found", "invalid_api_key", "unsupported_parameter", "unsupported_value"].includes(providerCode) ? providerCode : "request_rejected";
+    throw new ExamError("Luna rejected the server configuration. Details are in Diagnostics.", 503, "PROVIDER_CONFIGURATION", [], 0, safeProviderCode);
   }
   let data: Record<string, unknown>;
   try { data = record(await response.json()); } catch { throw new ExamError("Luna returned unreadable response data.", 502, "QUALITY_REJECTED", ["OUTPUT_JSON"]); }
@@ -182,7 +184,7 @@ export function createExamHandler(d: Dependencies) {
         if (!evidence.length) throw new ExamError("This source unit has no extractable text.", 400, "SOURCE_UNAVAILABLE");
         const schema = objectSchema({ topics: { type: "array", minItems: 0, maxItems: 4, items: objectSchema({
           title: schemaText(1, 160),
-          evidenceIds: { type: "array", minItems: 1, maxItems: 6, uniqueItems: true, items: { type: "string", enum: evidence.map((item) => item.id) } },
+          evidenceIds: { type: "array", minItems: 1, maxItems: 6, items: { type: "string", enum: evidence.map((item) => item.id) } },
         }) } });
         const output = await callModel(d, request, safety + "\nIdentify up to four distinct substantive learning topics represented in this SINGLE source unit. Skip administrative, title-only, and blank content. A unit with no substantive teachable content returns an empty topics array. Each topic must be supported by one to six supplied evidence IDs. Do not invent references, topics, or facts.", { lecture: unit.lectureTitle, course: unit.course, week: unit.week, unit: unit.ordinal, evidence }, schema, "exam_topics");
         const rawTopics = modelList(modelRecord(output).topics, 4);
@@ -227,7 +229,7 @@ export function createExamHandler(d: Dependencies) {
         explanation: schemaText(30, 5_000),
         teachingPoint: schemaText(10, 800),
         reasoningSteps: { type: "array", minItems: plan.level === 3 ? 2 : 1, maxItems: 4, items: schemaText(15, 1_000) },
-        sourceIds: { type: "array", minItems: 1, maxItems: 3, uniqueItems: true, items: { type: "string", enum: topic.evidenceIds } },
+        sourceIds: { type: "array", minItems: 1, maxItems: 3, items: { type: "string", enum: topic.evidenceIds } },
       });
       const levelInstructions = plan.level === 1
         ? "Test foundational recall or one direct first-order inference. Prefer a clear content check or mechanism. A vignette is optional and should be brief if used. Use one linked reasoning step."
@@ -267,7 +269,7 @@ export function createExamHandler(d: Dependencies) {
       return reply({ question });
     } catch (error) {
       const failure = error instanceof ExamError ? error : new ExamError("Exam generation is temporarily unavailable.", 502, "TRANSIENT");
-      const diagnostic = { version: "exam-v1", requestId, stage, level, code: failure.code, issues: failure.issues, status: failure.status, elapsedMs: Date.now() - started };
+      const diagnostic = { version: "exam-v2", requestId, stage, level, code: failure.code, providerCode: failure.providerCode, issues: failure.issues, status: failure.status, elapsedMs: Date.now() - started };
       try { d.log?.(diagnostic); } catch { /* Logging is best-effort. */ }
       return reply({ error: failure.message, code: failure.code, issues: failure.issues, retryAfterMs: failure.retryAfterMs, diagnostic }, failure.status, failure.retryAfterMs);
     }

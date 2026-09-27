@@ -8,6 +8,7 @@ import { changeExamSelection, filterExamLectures, examSelectableLectureIds } fro
 import { ExamPool, type ExamPoolSnapshot } from "../../lib/exam-pool";
 import { EXAM_BUFFER_SIZE, freshExamProgress, getExamTopicProgress, type ExamQuestion } from "../../lib/exam-prep";
 import { liveExamService, type ExamService } from "../../lib/exam-client";
+import { downloadDiagnostics } from "../../lib/diagnostics";
 import { QuizQuestionView } from "./QuizQuestionView";
 import "./adaptive-quiz.css";
 import "./exam-prep.css";
@@ -183,7 +184,7 @@ export function ExamPrep({ lectures, onExit, returnFocusRef, service = liveExamS
       </QuizQuestionView>}
       {((snapshot.busy && (!snapshot.initialized || !snapshot.current || snapshot.retrying)) || error || answered) && <footer className="aq-generation">
         {snapshot.busy && (!snapshot.initialized || !snapshot.current || snapshot.retrying) && <span role="status">{preparationStatus}</span>}
-        {error && <div className="aq-error" role="alert"><p>{error}</p></div>}
+        {error && <div className="aq-error" role="alert"><p>{error}</p><button type="button" onClick={() => downloadDiagnostics()}>Diagnostics</button></div>}
         {answered && <button className="aq-primary" disabled={!snapshot.current} onClick={advance}>Next question</button>}
       </footer>}
     </>}
